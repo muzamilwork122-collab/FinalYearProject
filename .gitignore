@@ -3,10 +3,7 @@
 *.env
 backend/.env
 
-# Model files (too large for GitHub)
-backend/models_weights/*.pt
-backend/models_weights/*.pkl
-backend/models_weights/*.json
+
 
 # Python
 __pycache__/
