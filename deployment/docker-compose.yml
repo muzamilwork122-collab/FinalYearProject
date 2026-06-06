@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: screenai-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB:       damage_ai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: ../backend
+    container_name: screenai-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend/models_weights:/app/models_weights
+    env_file:
+      - ../backend/.env
+    depends_on:
+      - db
+
+  nginx:
+    image: nginx:alpine
+    container_name: screenai-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ../frontend/dist:/usr/share/nginx/html
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

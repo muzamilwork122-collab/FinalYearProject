@@ -1,0 +1,35 @@
+from pydantic_settings import BaseSettings
+from typing import List
+
+
+class Settings(BaseSettings):
+    APP_NAME:  str  = "mobile-damage-ai"
+    DEBUG:     bool = False
+
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+
+    SEGMENTATION_MODEL_PATH: str = "models_weights/segmentation.pt"
+    DETECTION_MODEL_PATH:    str = "models_weights/detection.pt"
+    SEVERITY_MODEL_PATH:     str = "models_weights/severity.pkl"
+
+    CONFIDENCE_THRESHOLD: float = 0.5
+    MAX_IMAGE_SIZE_MB:    int   = 10
+
+    DATABASE_URL:     str = "postgresql://postgres:password@localhost:5432/damage_ai"
+    OPENAI_API_KEY:   str = ""
+    ANTHROPIC_API_KEY:str = ""
+    FRONTEND_URL:     str = "http://localhost:5173"
+
+    class Config:
+        env_file          = ".env"
+        env_file_encoding = "utf-8"
+        extra             = "ignore"
+
+
+settings = Settings()
+
+if isinstance(settings.CORS_ORIGINS, str):
+    settings.CORS_ORIGINS = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
