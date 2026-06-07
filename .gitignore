@@ -20,6 +20,3 @@ frontend/dist/
 .vscode/
 .idea/
 
-!backend/models_weights/*.pt
-!backend/models_weights/*.pkl
-!backend/models_weights/*.pth
