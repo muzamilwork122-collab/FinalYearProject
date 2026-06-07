@@ -29,7 +29,12 @@ limiter = Limiter(key_func=get_remote_address, enabled=False)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_tables()
-    load_all_models()
+
+    try:
+        load_all_models()
+    except Exception as e:
+        print(f"Model loading failed: {e}")
+
     yield
 
 
