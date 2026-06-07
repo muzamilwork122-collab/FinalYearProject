@@ -63,3 +63,14 @@ app.include_router(auth_router,   prefix="/api")
 @app.get("/health")
 async def health():
     return {"status": "ok", "app": settings.APP_NAME}
+
+@app.get("/debug/paths")
+def debug_paths():
+    import os
+    from pathlib import Path
+    return {
+        "cwd":           os.getcwd(),
+        "this_file":     str(Path(__file__).resolve()),
+        "backend_exists": Path("/app/backend").exists(),
+        "app_contents":  os.listdir("/app") if Path("/app").exists() else "no /app",
+    }
