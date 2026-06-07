@@ -14,12 +14,6 @@ COPY . .
 
 RUN mkdir -p models_weights
 
-# Download models on build if IDs are provided
-ARG SEGMENTATION_FILE_ID="https://drive.google.com/file/d/1sWprNFvq1o5Txei5RZIoftGr9Kt5OLA2/view?usp=drive_link"
-ARG SEVERITY_FILE_ID="https://drive.google.com/file/d/1HCRHGhianLsaV1DbaourUnpCdDiN7w6M/view?usp=drive_link"
-RUN if [ -n "$SEGMENTATION_FILE_ID" ]; then \
-    python download_models.py; \
-    fi
 
 EXPOSE 8000
 
