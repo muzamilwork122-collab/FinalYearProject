@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 
 _models = {}
 
+SEGMENTATION_MODEL_PATH=models_weights/segmentation.pt
+DETECTION_MODEL_PATH=models_weights/detection.pt
+SEVERITY_MODEL_PATH=models_weights/severity.pkl
 
 def load_all_models():
     """Load all models into memory at startup."""
@@ -69,15 +72,6 @@ def _load_sklearn_model(name: str, path: str):
 def get_model(name: str):
     return _models.get(name)
     
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve()
 
-# go up to backend/
-BASE_DIR = BASE_DIR.parents[2]
 
-MODEL_DIR = BASE_DIR / "models_weights"
-
-SEGMENTATION_MODEL_PATH = MODEL_DIR / "segmentation.pt"
-DETECTION_MODEL_PATH = MODEL_DIR / "detection.pt"
-SEVERITY_MODEL_PATH = MODEL_DIR / "severity.pkl"
