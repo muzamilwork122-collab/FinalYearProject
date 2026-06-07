@@ -18,3 +18,4 @@ httpx==0.27.0
 slowapi==0.1.9
 segmentation-models-pytorch==0.3.3
 six
+gdown==4.7.3
