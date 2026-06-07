@@ -10,9 +10,7 @@ logger = logging.getLogger(__name__)
 
 _models = {}
 
-SEGMENTATION_MODEL_PATH=models_weights/segmentation.pt
-DETECTION_MODEL_PATH=models_weights/detection.pt
-SEVERITY_MODEL_PATH=models_weights/severity.pkl
+
 
 def load_all_models():
     """Load all models into memory at startup."""
