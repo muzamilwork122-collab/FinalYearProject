@@ -1,14 +1,36 @@
 from pydantic_settings import BaseSettings
+from typing import List
+from pathlib import Path
+
+# Must be defined BEFORE the class — Pydantic evaluates defaults at class creation time
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# /app/app/core/config.py
+#       ↑ parent  = /app/app/core/
+#              ↑ parent  = /app/app/
+#                     ↑ parent  = /app/   ← repo root on Railway
 
 
 class Settings(BaseSettings):
-    # ── Model paths — absolute, works everywhere ──────────
-    SEGMENTATION_MODEL_PATH: str = str(REPO_ROOT / "models_weights" / "segmentation.pt")
-    DETECTION_MODEL_PATH:    str = str(REPO_ROOT / "models_weights" / "detection.pt")
-    SEVERITY_MODEL_PATH:     str = str(REPO_ROOT / "models_weights" / "severity.pkl")
+    APP_NAME:  str  = "mobile-damage-ai"
+    DEBUG:     bool = False
 
-    # ── Your other existing settings below ────────────────
-    # (keep everything else you already have in this file)
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+
+    # Absolute paths — works on Railway (/app) and locally
+    SEGMENTATION_MODEL_PATH: str = str(_REPO_ROOT / "models_weights" / "segmentation.pt")
+    DETECTION_MODEL_PATH:    str = str(_REPO_ROOT / "models_weights" / "detection.pt")
+    SEVERITY_MODEL_PATH:     str = str(_REPO_ROOT / "models_weights" / "severity.pkl")
+
+    CONFIDENCE_THRESHOLD: float = 0.5
+    MAX_IMAGE_SIZE_MB:    int   = 10
+
+    DATABASE_URL:      str = "postgresql://postgres:password@localhost:5432/damage_ai"
+    OPENAI_API_KEY:    str = ""
+    ANTHROPIC_API_KEY: str = ""
+    FRONTEND_URL:      str = "http://localhost:5173"
 
     class Config:
         env_file          = ".env"
@@ -18,13 +40,5 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Debug log so Railway logs show exact resolved paths
-import logging
-logger = logging.getLogger(__name__)
-logger.info(f"REPO_ROOT              : {REPO_ROOT}")
-logger.info(f"SEGMENTATION_MODEL_PATH: {settings.SEGMENTATION_MODEL_PATH}")
-logger.info(f"DETECTION_MODEL_PATH   : {settings.DETECTION_MODEL_PATH}")
-logger.info(f"SEVERITY_MODEL_PATH    : {settings.SEVERITY_MODEL_PATH}")
-logger.info(f"segmentation.pt exists : {Path(settings.SEGMENTATION_MODEL_PATH).exists()}")
-logger.info(f"detection.pt exists    : {Path(settings.DETECTION_MODEL_PATH).exists()}")
-logger.info(f"severity.pkl exists    : {Path(settings.SEVERITY_MODEL_PATH).exists()}")
+if isinstance(settings.CORS_ORIGINS, str):
+    settings.CORS_ORIGINS = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
