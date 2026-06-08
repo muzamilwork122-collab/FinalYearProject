@@ -27,7 +27,7 @@ const AuthPage = () => {
       return;
     }
     if (form.password.length < 6) {
-      toast.error("Password must be at least 6 characters");
+      toast.error("Please Enter a Strong password");
       return;
     }
 
@@ -328,14 +328,7 @@ const AuthPage = () => {
           </AnimatePresence>
 
           {/* Divider */}
-          <div style={{
-            display: "flex", alignItems: "center", gap: 12,
-            margin: "20px 0",
-          }}>
-            <div style={{ flex: 1, height: "0.5px", background: "var(--color-border-tertiary)" }} />
-            <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>or continue as</span>
-            <div style={{ flex: 1, height: "0.5px", background: "var(--color-border-tertiary)" }} />
-          </div>
+          
 
          
 
