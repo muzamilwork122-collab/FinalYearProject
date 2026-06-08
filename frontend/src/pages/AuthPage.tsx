@@ -337,21 +337,7 @@ const AuthPage = () => {
             <div style={{ flex: 1, height: "0.5px", background: "var(--color-border-tertiary)" }} />
           </div>
 
-          {/* Guest button */}
-          <button
-            onClick={() => navigate("/")}
-            style={{
-              width: "100%", padding: "11px 0",
-              background: "var(--color-background-secondary)",
-              border: "0.5px solid var(--color-border-secondary)",
-              borderRadius: 10, fontSize: 14,
-              color: "var(--color-text-secondary)",
-              cursor: "pointer",
-              transition: "background 0.15s",
-            }}
-          >
-            Continue as Guest
-          </button>
+         
 
           <p style={{ textAlign: "center", fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 24 }}>
             {mode === "login" ? "Don't have an account? " : "Already have an account? "}
