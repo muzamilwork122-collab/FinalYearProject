@@ -78,7 +78,7 @@ Rules:
 - damage_score 21-60 = visible cracks = medium
 - damage_score 61-85 = severe cracks = high but repairable
 - damage_score 86-100 = shattered/dead LCD = not repairable
-- repair_cost_usd: budget according to given model and make sure according to Pakistan market price must be low.
+- repair_cost_usd: budget according to given model and make sure according to Pakistan market price must be very very cheap according to Pakistan economy.
 - If no damage visible, damage_score=0, severity=low, repairable=true
 - nearby_shops: return exactly 3 real well-known repair markets or shops in Pakistan
 - Focus shops on basis of user location if possible (use "city" field in shop data)
