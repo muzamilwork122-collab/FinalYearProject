@@ -17,6 +17,8 @@ from app.db import models  # noqa: F401
 
 setup_logging()
 
+
+
 import os
 # Disable rate limiting during tests
 if os.getenv("TESTING") == "true":
@@ -29,12 +31,7 @@ limiter = Limiter(key_func=get_remote_address, enabled=False)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_tables()
-
-    try:
-        load_all_models()
-    except Exception as e:
-        print(f"Model loading failed: {e}")
-
+    print("Running in OpenAI-only mode — local models skipped")
     yield
 
 

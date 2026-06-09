@@ -19,11 +19,13 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+type Severity = "low" | "medium" | "high";
+
 interface Analysis {
   id:              string;
   created_at:      string;
   phone_model:     string;
-  severity:        "low" | "medium" | "high";
+  severity:        Severity;
   damage_score:    number;
   confidence:      number;
   repair_cost_usd: number;
@@ -40,32 +42,57 @@ interface Stats {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-const SEV_COLOR = { low: "#22c55e", medium: "#eab308", high: "#ef4444" };
-const SEV_BG    = { low: "bg-green-500/10 text-green-600", medium: "bg-yellow-500/10 text-yellow-600", high: "bg-red-500/10 text-red-600" };
-const SEV_ICON  = { low: CheckCircle2, medium: ShieldAlert, high: ShieldX };
+const SEV_COLOR: Record<Severity, string> = {
+  low:    "#22c55e",
+  medium: "#eab308",
+  high:   "#ef4444",
+};
+
+const SEV_BG: Record<Severity, string> = {
+  low:    "bg-green-500/10 text-green-600",
+  medium: "bg-yellow-500/10 text-yellow-600",
+  high:   "bg-red-500/10 text-red-600",
+};
+
+const SEV_ICON: Record<Severity, React.ElementType> = {
+  low:    CheckCircle2,
+  medium: ShieldAlert,
+  high:   ShieldX,
+};
+
+// Safely normalize severity — if API returns something unexpected, default to "low"
+function normalizeSeverity(s: string): Severity {
+  if (s === "low" || s === "medium" || s === "high") return s;
+  return "low";
+}
 
 function formatPKT(dateStr: string) {
-  return new Date(dateStr).toLocaleString("en-PK", {
-    timeZone: "Asia/Karachi", day: "2-digit", month: "short",
-    year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true,
-  });
+  try {
+    return new Date(dateStr).toLocaleString("en-PK", {
+      timeZone: "Asia/Karachi", day: "2-digit", month: "short",
+      year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true,
+    });
+  } catch {
+    return dateStr;
+  }
 }
 
 function formatPhone(model: string) {
-  return model.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  if (!model || model === "other" || model === "unknown smartphone") return "Unknown";
+  return model.replace(/_/g, " ").trim();
 }
 
 // ── Dashboard Component ────────────────────────────────────────────────────
 
 const Dashboard = () => {
-  const [analyses, setAnalyses]     = useState<Analysis[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [search, setSearch]         = useState("");
+  const [analyses, setAnalyses]           = useState<Analysis[]>([]);
+  const [loading, setLoading]             = useState(true);
+  const [search, setSearch]               = useState("");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
-  const [sortBy, setSortBy]         = useState<"date" | "score" | "cost">("date");
-  const [selectedRow, setSelectedRow] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const navigate                    = useNavigate();
+  const [sortBy, setSortBy]               = useState<"date" | "score" | "cost">("date");
+  const [selectedRow, setSelectedRow]     = useState<string | null>(null);
+  const [refreshing, setRefreshing]       = useState(false);
+  const navigate                          = useNavigate();
 
   const user  = JSON.parse(localStorage.getItem("user") || "{}");
   const token = localStorage.getItem("token");
@@ -81,22 +108,26 @@ const Dashboard = () => {
     if (showRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-        const token = localStorage.getItem("token") || "";
-        const resp  = await fetch(`${API_BASE}/api/history?token=${token}&limit=100`);
-        if (!resp.ok) throw new Error("Failed to fetch");
-        const data  = await resp.json();
-        setAnalyses(data);
+      const t    = localStorage.getItem("token") || "";
+      const resp = await fetch(`${API_BASE}/api/history?token=${t}&limit=100`);
+      if (!resp.ok) throw new Error("Failed to fetch");
+      const data: Analysis[] = await resp.json();
+      // Normalize severity for every row so SEV_ICON never gets undefined
+      const safe = data.map(a => ({ ...a, severity: normalizeSeverity(a.severity) }));
+      setAnalyses(safe);
     } catch {
-        toast.error("Failed to load history");
+      toast.error("Failed to load history");
     }
     setLoading(false);
     setRefreshing(false);
-};
+  };
 
   // ── Stats ──────────────────────────────────────────────────────────────
   const stats: Stats = {
     total:       analyses.length,
-    avgScore:    analyses.length ? analyses.reduce((s, a) => s + a.damage_score, 0) / analyses.length : 0,
+    avgScore:    analyses.length
+      ? analyses.reduce((s, a) => s + (a.damage_score || 0), 0) / analyses.length
+      : 0,
     totalCost:   analyses.reduce((s, a) => s + (a.repair_cost_usd || 0), 0),
     lowCount:    analyses.filter(a => a.severity === "low").length,
     mediumCount: analyses.filter(a => a.severity === "medium").length,
@@ -115,7 +146,7 @@ const Dashboard = () => {
     .slice(-7)
     .map(a => ({
       date:  new Date(a.created_at).toLocaleDateString("en-PK", { month: "short", day: "numeric" }),
-      score: Math.round(a.damage_score),
+      score: Math.round(a.damage_score || 0),
       cost:  Math.round(a.repair_cost_usd || 0),
     }));
 
@@ -126,7 +157,8 @@ const Dashboard = () => {
       return acc;
     }, {})
   ).map(([name, count]) => ({ name, count }))
-   .sort((a, b) => b.count - a.count).slice(0, 5);
+   .sort((a, b) => b.count - a.count)
+   .slice(0, 5);
 
   // ── Filtered list ──────────────────────────────────────────────────────
   const filtered = analyses
@@ -138,7 +170,7 @@ const Dashboard = () => {
       return matchSearch && matchSev;
     })
     .sort((a, b) => {
-      if (sortBy === "score") return b.damage_score - a.damage_score;
+      if (sortBy === "score") return (b.damage_score || 0) - (a.damage_score || 0);
       if (sortBy === "cost")  return (b.repair_cost_usd || 0) - (a.repair_cost_usd || 0);
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
@@ -152,15 +184,21 @@ const Dashboard = () => {
     const rows = [
       ["ID", "Date (PKT)", "Phone Model", "Severity", "Damage Score", "Repair Cost USD"],
       ...analyses.map(a => [
-        a.id, formatPKT(a.created_at), formatPhone(a.phone_model || "Unknown"),
-        a.severity, a.damage_score.toFixed(1), (a.repair_cost_usd || 0).toFixed(2),
+        a.id,
+        formatPKT(a.created_at),
+        formatPhone(a.phone_model || "Unknown"),
+        a.severity,
+        (a.damage_score || 0).toFixed(1),
+        (a.repair_cost_usd || 0).toFixed(2),
       ])
     ];
     const csv  = rows.map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href = url; a.download = `ScreenAI_History_${Date.now()}.csv`; a.click();
+    const el   = document.createElement("a");
+    el.href = url;
+    el.download = `ScreenAI_History_${Date.now()}.csv`;
+    el.click();
     URL.revokeObjectURL(url);
     toast.success("CSV exported!");
   };
@@ -203,7 +241,8 @@ const Dashboard = () => {
               </div>
               <span className="text-sm font-medium">{user?.name || "User"}</span>
             </div>
-            <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-1.5 text-muted-foreground hover:text-foreground">
+            <Button variant="ghost" size="sm" onClick={handleLogout}
+              className="gap-1.5 text-muted-foreground hover:text-foreground">
               <LogOut className="w-4 h-4" />
               <span className="hidden sm:inline text-sm">Sign out</span>
             </Button>
@@ -243,10 +282,10 @@ const Dashboard = () => {
           transition={{ delay: 0.05 }}
           className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
-            { label: "Total Analyses",    value: stats.total,                         icon: History,      color: "text-primary",   bg: "bg-primary/10"    },
-            { label: "Avg Damage Score",  value: `${stats.avgScore.toFixed(1)}/100`,  icon: TrendingUp,   color: "text-yellow-500", bg: "bg-yellow-500/10" },
-            { label: "Est. Total Repairs",value: `$${stats.totalCost.toFixed(0)}`,    icon: DollarSign,   color: "text-green-500",  bg: "bg-green-500/10"  },
-            { label: "Critical Screens",  value: stats.highCount,                     icon: AlertTriangle,color: "text-red-500",    bg: "bg-red-500/10"    },
+            { label: "Total Analyses",     value: stats.total,                        icon: History,       color: "text-primary",    bg: "bg-primary/10"    },
+            { label: "Avg Damage Score",   value: `${stats.avgScore.toFixed(1)}/100`, icon: TrendingUp,    color: "text-yellow-500", bg: "bg-yellow-500/10" },
+            { label: "Est. Total Repairs", value: `$${stats.totalCost.toFixed(0)}`,   icon: DollarSign,    color: "text-green-500",  bg: "bg-green-500/10"  },
+            { label: "Critical Screens",   value: stats.highCount,                    icon: AlertTriangle, color: "text-red-500",    bg: "bg-red-500/10"    },
           ].map((s, i) => (
             <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 + i * 0.05 }}
@@ -329,7 +368,6 @@ const Dashboard = () => {
           transition={{ delay: 0.2 }}
           className="flex flex-wrap items-center gap-3 mb-5">
 
-          {/* Search */}
           <div className="relative flex-1 min-w-[200px]">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -339,7 +377,6 @@ const Dashboard = () => {
             />
           </div>
 
-          {/* Severity filter */}
           <div className="relative">
             <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value)}
               className="appearance-none pl-3 pr-8 py-2.5 text-sm rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer">
@@ -351,9 +388,8 @@ const Dashboard = () => {
             <Filter className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           </div>
 
-          {/* Sort */}
           <div className="relative">
-            <select value={sortBy} onChange={e => setSortBy(e.target.value as any)}
+            <select value={sortBy} onChange={e => setSortBy(e.target.value as "date" | "score" | "cost")}
               className="appearance-none pl-3 pr-8 py-2.5 text-sm rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer">
               <option value="date">Sort: Latest</option>
               <option value="score">Sort: Damage Score</option>
@@ -405,7 +441,8 @@ const Dashboard = () => {
           {/* Rows */}
           <AnimatePresence>
             {filtered.map((a, i) => {
-              const SevIcon = SEV_ICON[a.severity];
+              const sev     = normalizeSeverity(a.severity); // safe lookup
+              const SevIcon = SEV_ICON[sev];
               const isOpen  = selectedRow === a.id;
 
               return (
@@ -420,42 +457,37 @@ const Dashboard = () => {
                       isOpen ? "bg-primary/5" : "hover:bg-secondary/40"
                     }`}>
 
-                    {/* Date */}
                     <div className="col-span-3 flex items-center gap-2">
                       <Calendar className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                       <span className="text-sm text-foreground">{formatPKT(a.created_at)}</span>
                     </div>
 
-                    {/* Phone model */}
                     <div className="col-span-2 flex items-center">
                       <span className="text-sm font-medium text-foreground truncate">
                         {formatPhone(a.phone_model || "Unknown")}
                       </span>
                     </div>
 
-                    {/* Severity badge */}
                     <div className="col-span-2 flex items-center">
-                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${SEV_BG[a.severity]}`}>
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${SEV_BG[sev]}`}>
                         <SevIcon className="w-3 h-3" />
-                        {a.severity.charAt(0).toUpperCase() + a.severity.slice(1)}
+                        {sev.charAt(0).toUpperCase() + sev.slice(1)}
                       </span>
                     </div>
 
-                    {/* Damage score bar */}
                     <div className="col-span-2 flex items-center gap-2">
                       <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all"
                           style={{
-                            width: `${a.damage_score}%`,
-                            background: SEV_COLOR[a.severity],
+                            width: `${Math.min(a.damage_score || 0, 100)}%`,
+                            background: SEV_COLOR[sev],
                           }} />
                       </div>
                       <span className="text-sm font-medium text-foreground w-12 text-right">
-                        {a.damage_score.toFixed(0)}/100
+                        {(a.damage_score || 0).toFixed(0)}/100
                       </span>
                     </div>
 
-                    {/* Cost */}
                     <div className="col-span-2 flex items-center">
                       <span className="text-sm font-semibold text-foreground">
                         ${(a.repair_cost_usd || 0).toFixed(0)}
@@ -465,24 +497,23 @@ const Dashboard = () => {
                       </span>
                     </div>
 
-                    {/* Download */}
                     <div className="col-span-1 flex items-center justify-end">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           generateDamageReport({
                             report_id:       a.id,
-                            severity:        a.severity,
-                            damage_score:    a.damage_score,
-                            confidence:      a.confidence,
-                            repair_cost_usd: a.repair_cost_usd,
-                            repairable:      a.severity !== "high",
-                            repair_status:   a.severity === "high" ? "not_repairable" : a.severity === "medium" ? "borderline" : "repairable",
-                            recommendation:  a.severity === "high" ? "Screen Replacement Required" : "Repairable",
-                            repair_reason:   `Damage score: ${a.damage_score}`,
+                            severity:        sev,
+                            damage_score:    a.damage_score || 0,
+                            confidence:      a.confidence || 0,
+                            repair_cost_usd: a.repair_cost_usd || 0,
+                            repairable:      sev !== "high",
+                            repair_status:   sev === "high" ? "not_repairable" : sev === "medium" ? "borderline" : "repairable",
+                            recommendation:  sev === "high" ? "Screen Replacement Required" : "Repairable",
+                            repair_reason:   `Damage score: ${a.damage_score || 0}`,
                             repair_advice:   "Visit a certified repair shop for professional assessment.",
                             detections:      [],
-                            phone_model:     a.phone_model || "other",
+                            phone_model:     a.phone_model || "Unknown",
                           }).then(() => toast.success("Report downloaded!"));
                         }}
                         className="w-8 h-8 rounded-lg bg-secondary hover:bg-primary/10 flex items-center justify-center transition-colors group"
@@ -503,10 +534,10 @@ const Dashboard = () => {
                         className="bg-primary/3 border-b border-border/50 px-5 py-4">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                           {[
-                            { label: "Report ID",      value: a.id.slice(0, 16) + "..." },
-                            { label: "Confidence",     value: `${(a.confidence * 100).toFixed(1)}%` },
-                            { label: "Cost (USD)",     value: `$${(a.repair_cost_usd || 0).toFixed(2)}` },
-                            { label: "Cost (PKR)",     value: `PKR ${((a.repair_cost_usd || 0) * 278).toLocaleString()}` },
+                            { label: "Report ID",  value: a.id.slice(0, 16) + "..."                              },
+                            { label: "Confidence", value: `${((a.confidence || 0) * 100).toFixed(1)}%`           },
+                            { label: "Cost (USD)", value: `$${(a.repair_cost_usd || 0).toFixed(2)}`              },
+                            { label: "Cost (PKR)", value: `PKR ${((a.repair_cost_usd || 0) * 278).toLocaleString()}` },
                           ].map((d, di) => (
                             <div key={di} className="bg-card rounded-xl border border-border p-3">
                               <p className="text-xs text-muted-foreground mb-1">{d.label}</p>
@@ -523,10 +554,10 @@ const Dashboard = () => {
           </AnimatePresence>
         </motion.div>
 
-        {/* Footer note */}
         <p className="text-xs text-muted-foreground text-center mt-6">
           All times shown in Pakistan Standard Time (PKT, UTC+5) · 1 USD ≈ PKR 278
         </p>
+
       </main>
     </div>
   );

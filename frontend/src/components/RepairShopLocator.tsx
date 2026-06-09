@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import {
   MapPin, Navigation, Loader2, ExternalLink,
-  Phone, Clock, RefreshCw
+  Phone, Clock, RefreshCw, Sparkles, AlertTriangle, ShieldCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 interface Shop {
   id:          number;
@@ -24,6 +26,67 @@ interface UserLocation {
   country: string;
 }
 
+interface AIInsights {
+  suggestions: string[];
+  cautions:    string[];
+  summary:     string;
+}
+
+// ── OpenAI insights fetch ──────────────────────────────────────────────────
+
+async function fetchAIInsights(
+  city: string,
+  country: string,
+  shops: Shop[]
+): Promise<AIInsights | null> {
+  try {
+    const shopNames = shops.slice(0, 5).map((s, i) => `${i + 1}. ${s.name}${s.address ? ` (${s.address})` : ""}`).join("\n");
+
+    const prompt = `You are a local smartphone repair expert in ${city}, ${country}.
+
+Based on these nearby repair shops:
+${shopNames || "No specific shops listed yet"}
+
+Give practical advice for someone getting their phone screen repaired in ${city}.
+
+Respond ONLY with this exact JSON format, no extra text:
+{
+  "summary": "One sentence about the repair market in ${city} (max 20 words, no mention of AI)",
+  "suggestions": [
+    "Practical tip 1 specific to ${city} (max 15 words)",
+    "Practical tip 2 about what to check before handing your phone (max 15 words)",
+    "Practical tip 3 about pricing or warranty in ${country} (max 15 words)"
+  ],
+  "cautions": [
+    "Warning 1 about common issues at local repair shops (max 15 words)",
+    "Warning 2 about what to avoid (max 15 words)"
+  ]
+}
+
+Rules:
+- Never use the word "AI" or "artificial intelligence"
+- Be specific to ${city}, ${country} — mention local context where possible
+- Keep all text short and actionable
+- cautions should be genuine warnings, not generic advice`;
+
+    const response = await fetch(`${API_BASE}/api/repair-insights`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ city, country, shops: shops.slice(0, 5).map(s => s.name) }),
+    });
+
+    // If backend endpoint doesn't exist yet, call OpenAI directly via proxy
+    if (!response.ok) throw new Error("backend endpoint not available");
+    return await response.json();
+  } catch {
+    // Direct fetch fallback — works if your backend proxies /api/openai-proxy
+    // or just return null gracefully
+    return null;
+  }
+}
+
+// ── Component ──────────────────────────────────────────────────────────────
+
 const RepairShopLocator = () => {
   const [location, setLocation]         = useState<UserLocation | null>(null);
   const [shops, setShops]               = useState<Shop[]>([]);
@@ -31,6 +94,8 @@ const RepairShopLocator = () => {
   const [error, setError]               = useState<string | null>(null);
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
   const [statusText, setStatusText]     = useState("Detecting your location...");
+  const [insights, setInsights]         = useState<AIInsights | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
   const mapRef                          = useRef<HTMLDivElement>(null);
   const mapInstance                     = useRef<any>(null);
   const markersRef                      = useRef<any[]>([]);
@@ -61,6 +126,7 @@ const RepairShopLocator = () => {
     setError(null);
     setStatusText("Detecting your location...");
     setShops([]);
+    setInsights(null);
 
     if (navigator.geolocation) {
       setStatusText("Getting GPS location...");
@@ -81,13 +147,15 @@ const RepairShopLocator = () => {
             const data = await resp.json();
             const addr = data.address ?? {};
             const city = addr.city || addr.town || addr.village || addr.county || "Your City";
-            setLocation({ lat, lng, city, country: addr.country || "" });
+            const loc  = { lat, lng, city, country: addr.country || "" };
+            setLocation(loc);
             setStatusText("");
-            findNearbyShops(lat, lng);
+            findNearbyShops(lat, lng, loc);
           } catch {
-            setLocation({ lat, lng, city: "Your Location", country: "" });
+            const loc = { lat, lng, city: "Your Location", country: "" };
+            setLocation(loc);
             setStatusText("");
-            findNearbyShops(lat, lng);
+            findNearbyShops(lat, lng, loc);
           }
         },
         async () => {
@@ -103,30 +171,25 @@ const RepairShopLocator = () => {
 
   const getLocationByIP = async () => {
     setStatusText("Detecting location from network...");
-
     const apis = [
-      // ✅ HTTPS only — works on HTTPS sites
       async () => {
         const r = await fetch("https://ipapi.co/json/");
         const d = await r.json();
         if (!d.latitude) throw new Error("no data");
         return { lat: d.latitude, lng: d.longitude, city: d.city || d.region || "Your City", country: d.country_name || "" };
       },
-      // ✅ HTTPS version of ip-api (fixes the http:// block)
       async () => {
         const r = await fetch("https://ipapi.is/json/");
         const d = await r.json();
         if (!d.location?.latitude) throw new Error("no data");
         return { lat: d.location.latitude, lng: d.location.longitude, city: d.location.city || "Your City", country: d.location.country || "" };
       },
-      // ✅ ipwho.is — HTTPS, no auth needed
       async () => {
         const r = await fetch("https://ipwho.is/");
         const d = await r.json();
         if (!d.latitude) throw new Error("no data");
         return { lat: d.latitude, lng: d.longitude, city: d.city || d.region || "Your City", country: d.country || "" };
       },
-      // ✅ freeipapi.com — HTTPS fallback
       async () => {
         const r = await fetch("https://freeipapi.com/api/json");
         const d = await r.json();
@@ -140,11 +203,9 @@ const RepairShopLocator = () => {
         const loc = await api();
         setLocation(loc);
         setStatusText("");
-        findNearbyShops(loc.lat, loc.lng);
+        findNearbyShops(loc.lat, loc.lng, loc);
         return;
-      } catch {
-        continue;
-      }
+      } catch { continue; }
     }
 
     setLoading(false);
@@ -152,16 +213,13 @@ const RepairShopLocator = () => {
     setError("Could not detect location. Please check your internet connection.");
   };
 
-  const findNearbyShops = async (lat: number, lng: number) => {
+  const findNearbyShops = async (lat: number, lng: number, loc: UserLocation) => {
     setStatusText("Searching nearby repair shops...");
 
-    // ── Use CORS-safe Overpass mirrors ─────────────────────
-    // overpass-api.de blocks direct browser requests (CORS)
-    // These mirrors allow browser access
     const OVERPASS_ENDPOINTS = [
-      "https://overpass.kumi.systems/api/interpreter",   // ✅ CORS enabled
-      "https://maps.mail.ru/osm/tools/overpass/api/interpreter", // ✅ CORS enabled
-      "https://overpass.openstreetmap.ru/api/interpreter", // ✅ fallback
+      "https://overpass.kumi.systems/api/interpreter",
+      "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+      "https://overpass.openstreetmap.ru/api/interpreter",
     ];
 
     const buildQuery = (radius: number) => `
@@ -189,36 +247,25 @@ const RepairShopLocator = () => {
           if (!resp.ok) continue;
           const data = await resp.json();
           return (data.elements ?? []).filter((el: any) => el.tags?.name);
-        } catch {
-          continue;   // try next mirror
-        }
+        } catch { continue; }
       }
-      return null;   // all mirrors failed
+      return null;
     };
 
     try {
-      // Try 5km radius first
       let elements = await tryFetch(buildQuery(5000));
-
-      // Broaden to 10km if nothing found
       if (elements && elements.length === 0) {
         setStatusText("Expanding search to 10km...");
         elements = await tryFetch(buildQuery(10000));
       }
 
       if (elements === null) {
-        // All Overpass mirrors failed — use Google Maps search as fallback
         setLoading(false);
         setStatusText("");
-        setError(null);
-        setShops([]);
+        setError(`Map service temporarily unavailable. Try searching on Google Maps: "mobile phone repair near me"`);
         initMap(lat, lng, []);
-
-        // Show helpful Google Maps fallback
-        setError(
-          `Map service temporarily unavailable. ` +
-          `Try searching on Google Maps: "mobile phone repair near me"`
-        );
+        // Still fetch insights even if no map shops found
+        loadInsights(loc.city, loc.country, []);
         return;
       }
 
@@ -231,7 +278,6 @@ const RepairShopLocator = () => {
           tags["addr:street"],
           tags["addr:city"] || tags["addr:suburb"],
         ].filter(Boolean);
-
         return {
           id:          el.id,
           name:        tags.name,
@@ -249,19 +295,42 @@ const RepairShopLocator = () => {
       setShops(shopList);
       setLoading(false);
       setStatusText("");
-
       if (shopList.length === 0) {
-        setError("No repair shops found in your area on OpenStreetMap. Nearby shops may not be listed yet.");
+        setError("No repair shops found in your area on OpenStreetMap.");
       }
-
       initMap(lat, lng, shopList);
 
-    } catch (err) {
+      // ── Fetch OpenAI insights after shops are found ───────────
+      loadInsights(loc.city, loc.country, shopList);
+
+    } catch {
       setLoading(false);
       setStatusText("");
       setError("Failed to load shops. Please try again.");
       initMap(lat, lng, []);
     }
+  };
+
+  // ── Fetch insights from backend → OpenAI ──────────────────────────────────
+  const loadInsights = async (city: string, country: string, shopList: Shop[]) => {
+    setInsightsLoading(true);
+    try {
+      const shopNames = shopList.slice(0, 5).map(s => s.name).filter(Boolean);
+
+      const response = await fetch(`${API_BASE}/api/repair-insights`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ city, country, shops: shopNames }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setInsights(data);
+      }
+    } catch {
+      // Silently fail — insights are a bonus feature
+    }
+    setInsightsLoading(false);
   };
 
   const initMap = (lat: number, lng: number, shopList: Shop[]) => {
@@ -285,30 +354,21 @@ const RepairShopLocator = () => {
         html: `<div style="width:18px;height:18px;background:#4f46e5;border:3px solid white;border-radius:50%;box-shadow:0 0 0 5px rgba(79,70,229,0.2)"></div>`,
         className: "", iconSize: [18, 18], iconAnchor: [9, 9],
       });
-      L.marker([lat, lng], { icon: userIcon })
-        .addTo(map)
-        .bindPopup(`<b>📍 You are here</b>`)
-        .openPopup();
+      L.marker([lat, lng], { icon: userIcon }).addTo(map).bindPopup(`<b>📍 You are here</b>`).openPopup();
 
       shopList.forEach((shop, i) => {
         const icon = L.divIcon({
           html: `<div style="background:#ef4444;color:white;font-weight:700;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3)">${i + 1}</div>`,
           className: "", iconSize: [28, 28], iconAnchor: [14, 14],
         });
-        const m = L.marker([shop.lat, shop.lng], { icon })
-          .addTo(map)
-          .bindPopup(`
-            <div style="min-width:150px;font-family:sans-serif">
-              <b style="font-size:13px">${shop.name}</b>
-              ${shop.address ? `<br/><span style="color:#6b7280;font-size:11px">${shop.address}</span>` : ""}
-              ${shop.phone   ? `<br/><span style="font-size:11px">📞 ${shop.phone}</span>` : ""}
-              <br/><b style="font-size:11px;color:#4f46e5">
-                ${shop.distance_km < 1
-                  ? `${(shop.distance_km * 1000).toFixed(0)}m`
-                  : `${shop.distance_km.toFixed(1)}km`} away
-              </b>
-            </div>
-          `);
+        const m = L.marker([shop.lat, shop.lng], { icon }).addTo(map).bindPopup(`
+          <div style="min-width:150px;font-family:sans-serif">
+            <b style="font-size:13px">${shop.name}</b>
+            ${shop.address ? `<br/><span style="color:#6b7280;font-size:11px">${shop.address}</span>` : ""}
+            ${shop.phone   ? `<br/><span style="font-size:11px">📞 ${shop.phone}</span>` : ""}
+            <br/><b style="font-size:11px;color:#4f46e5">${shop.distance_km < 1 ? `${(shop.distance_km * 1000).toFixed(0)}m` : `${shop.distance_km.toFixed(1)}km`} away</b>
+          </div>
+        `);
         markersRef.current.push(m);
       });
     };
@@ -357,7 +417,7 @@ const RepairShopLocator = () => {
           </motion.div>
         )}
 
-        {/* Error */}
+        {/* Error — no location at all */}
         {error && !loading && !location && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="flex flex-col items-center gap-4 py-8">
@@ -373,6 +433,7 @@ const RepairShopLocator = () => {
         {/* Location found */}
         {location && !loading && (
           <>
+            {/* Location bar */}
             <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
               className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-xl px-5 py-3 mb-6">
               <div className="flex items-center gap-2">
@@ -390,6 +451,101 @@ const RepairShopLocator = () => {
               </button>
             </motion.div>
 
+            {/* ── Smart Insights Panel ───────────────────────────── */}
+            <AnimatePresence>
+              {(insightsLoading || insights) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="mb-6 rounded-2xl border border-primary/20 bg-primary/3 overflow-hidden"
+                >
+                  {/* Panel header */}
+                  <div className="flex items-center gap-2 px-5 py-3 border-b border-primary/10 bg-primary/5">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-semibold text-primary">
+                      Local Repair Insights — {location.city}
+                    </span>
+                    {insightsLoading && (
+                      <Loader2 className="w-3.5 h-3.5 text-primary animate-spin ml-auto" />
+                    )}
+                  </div>
+
+                  {insightsLoading && !insights && (
+                    <div className="px-5 py-4 flex items-center gap-3">
+                      <div className="flex gap-1">
+                        {[0, 1, 2].map(i => (
+                          <div key={i} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce"
+                            style={{ animationDelay: `${i * 0.15}s` }} />
+                        ))}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        Gathering local repair tips...
+                      </span>
+                    </div>
+                  )}
+
+                  {insights && (
+                    <div className="px-5 py-4 space-y-4">
+
+                      {/* Summary */}
+                      {insights.summary && (
+                        <p className="text-sm text-foreground font-medium">{insights.summary}</p>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                        {/* Suggestions */}
+                        {insights.suggestions?.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
+                              <span className="text-xs font-semibold text-green-600 uppercase tracking-wide">
+                                Tips
+                              </span>
+                            </div>
+                            <ul className="space-y-1.5">
+                              {insights.suggestions.map((tip, i) => (
+                                <li key={i} className="flex items-start gap-2 text-xs text-foreground">
+                                  <span className="w-4 h-4 rounded-full bg-green-500/15 text-green-600 flex items-center justify-center flex-shrink-0 font-bold text-[10px] mt-0.5">
+                                    {i + 1}
+                                  </span>
+                                  {tip}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Cautions */}
+                        {insights.cautions?.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />
+                              <span className="text-xs font-semibold text-yellow-600 uppercase tracking-wide">
+                                Watch Out
+                              </span>
+                            </div>
+                            <ul className="space-y-1.5">
+                              {insights.cautions.map((c, i) => (
+                                <li key={i} className="flex items-start gap-2 text-xs text-foreground">
+                                  <span className="w-4 h-4 rounded-full bg-yellow-500/15 text-yellow-600 flex items-center justify-center flex-shrink-0 font-bold text-[10px] mt-0.5">
+                                    !
+                                  </span>
+                                  {c}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Map + Shop list */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
               {/* Map */}
@@ -400,7 +556,6 @@ const RepairShopLocator = () => {
               {/* Shop list */}
               <div className="flex flex-col gap-3 max-h-[460px] overflow-y-auto pr-1">
 
-                {/* Overpass fallback — show Google Maps link */}
                 {error && (
                   <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">
                     <p className="text-sm text-yellow-700 mb-2">{error}</p>

@@ -1,7 +1,8 @@
 import { useState, useCallback, forwardRef } from "react";
 import {
   Upload, X, Loader2, CheckCircle2, AlertTriangle,
-  Brain, Sparkles, Download, RotateCcw, Shield, ShieldAlert, ShieldX
+  Brain, Sparkles, Download, RotateCcw, Shield, ShieldAlert, ShieldX,
+  MapPin, ExternalLink
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -15,9 +16,17 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface Detection {
-  label: string;
+  label:      string;
   confidence: number;
-  bbox: [number, number, number, number];
+  bbox:       [number, number, number, number];
+}
+
+interface NearbyShop {
+  name:      string;
+  area:      string;
+  city:      string;
+  phone:     string;
+  specialty: string;
 }
 
 interface AnalysisResult {
@@ -28,74 +37,48 @@ interface AnalysisResult {
   detections:      Detection[];
   image_url:       string | null;
   report_id:       string | null;
-  // Repairability
   repairable:      boolean;
   repair_status:   "repairable" | "borderline" | "not_repairable";
   recommendation:  string;
   repair_reason:   string;
   repair_advice:   string;
+  nearby_shops:    NearbyShop[];
 }
-
-// ── Phone models ───────────────────────────────────────────────────────────
-
-const PHONE_MODELS = [
-  { value: "other",             label: "Select Phone Model (Optional)" },
-  { value: "iphone_15_pro_max", label: "iPhone 15 Pro Max" },
-  { value: "iphone_15_pro",     label: "iPhone 15 Pro" },
-  { value: "iphone_15",         label: "iPhone 15" },
-  { value: "iphone_14",         label: "iPhone 14" },
-  { value: "iphone_13",         label: "iPhone 13" },
-  { value: "iphone_12",         label: "iPhone 12" },
-  { value: "iphone_11",         label: "iPhone 11" },
-  { value: "iphone_x",          label: "iPhone X" },
-  { value: "samsung_s24_ultra", label: "Samsung Galaxy S24 Ultra" },
-  { value: "samsung_s24",       label: "Samsung Galaxy S24" },
-  { value: "samsung_s23",       label: "Samsung Galaxy S23" },
-  { value: "samsung_a55",       label: "Samsung Galaxy A55" },
-  { value: "samsung_a35",       label: "Samsung Galaxy A35" },
-  { value: "xiaomi_14_pro",     label: "Xiaomi 14 Pro" },
-  { value: "xiaomi_13",         label: "Xiaomi 13" },
-  { value: "oppo_find_x7",      label: "OPPO Find X7" },
-  { value: "oppo_reno11",       label: "OPPO Reno 11" },
-  { value: "vivo_x100",         label: "Vivo X100" },
-  { value: "realme_12_pro",     label: "Realme 12 Pro" },
-  { value: "nokia_g42",         label: "Nokia G42" },
-];
 
 // ── Severity display helpers ───────────────────────────────────────────────
 
 const SEVERITY_DISPLAY = {
-  low:    { label: "Low Damage",      colorText: "text-green-500",  colorBg: "bg-green-500/10 border-green-500/30"  },
+  low:    { label: "Low Damage",      colorText: "text-green-500",  colorBg: "bg-green-500/10 border-green-500/30"   },
   medium: { label: "Moderate Damage", colorText: "text-yellow-500", colorBg: "bg-yellow-500/10 border-yellow-500/30" },
-  high:   { label: "Critical Damage", colorText: "text-red-500",    colorBg: "bg-red-500/10 border-red-500/30"      },
+  high:   { label: "Critical Damage", colorText: "text-red-500",    colorBg: "bg-red-500/10 border-red-500/30"       },
 };
 
 // ── Repairability display helpers ──────────────────────────────────────────
 
 const REPAIR_STATUS_DISPLAY = {
   repairable: {
-    icon:       ShieldAlert,
-    iconColor:  "text-green-500",
-    bgColor:    "bg-green-500/8 border-green-500/25",
-    textColor:  "text-green-600",
-    badgeBg:    "bg-green-100",
-    badgeText:  "text-green-700",
+    icon:      ShieldAlert,
+    iconColor: "text-green-500",
+    bgColor:   "bg-green-500/8 border-green-500/25",
+    textColor: "text-green-600",
+    badgeBg:   "bg-green-100",
+    badgeText: "text-green-700",
   },
   borderline: {
-    icon:       ShieldAlert,
-    iconColor:  "text-yellow-500",
-    bgColor:    "bg-yellow-500/8 border-yellow-500/25",
-    textColor:  "text-yellow-600",
-    badgeBg:    "bg-yellow-100",
-    badgeText:  "text-yellow-700",
+    icon:      ShieldAlert,
+    iconColor: "text-yellow-500",
+    bgColor:   "bg-yellow-500/8 border-yellow-500/25",
+    textColor: "text-yellow-600",
+    badgeBg:   "bg-yellow-100",
+    badgeText: "text-yellow-700",
   },
   not_repairable: {
-    icon:       ShieldX,
-    iconColor:  "text-red-500",
-    bgColor:    "bg-red-500/8 border-red-500/25",
-    textColor:  "text-red-600",
-    badgeBg:    "bg-red-100",
-    badgeText:  "text-red-700",
+    icon:      ShieldX,
+    iconColor: "text-red-500",
+    bgColor:   "bg-red-500/8 border-red-500/25",
+    textColor: "text-red-600",
+    badgeBg:   "bg-red-100",
+    badgeText: "text-red-700",
   },
 };
 
@@ -104,14 +87,14 @@ const REPAIR_STATUS_DISPLAY = {
 const UploadSection = forwardRef<HTMLElement>((_, ref) => {
   const [uploadedFile, setUploadedFile]   = useState<File | null>(null);
   const [preview, setPreview]             = useState<string | null>(null);
-  const [phoneModel, setPhoneModel]       = useState("other");
+  const [phoneModel, setPhoneModel]       = useState<string>("");
   const [isAnalyzing, setIsAnalyzing]     = useState(false);
   const [progress, setProgress]           = useState(0);
   const [progressText, setProgressText]   = useState("Analyzing...");
   const [result, setResult]               = useState<AnalysisResult | null>(null);
   const [showAnnotated, setShowAnnotated] = useState(false);
 
-  // ── File handling ─────────────────────────────────────────────────────────
+  // ── File handling ──────────────────────────────────────────────────────
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -134,7 +117,7 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
     }
   };
 
-  // ── Analysis ──────────────────────────────────────────────────────────────
+  // ── Analysis ──────────────────────────────────────────────────────────
 
   const startAnalysis = async () => {
     if (!uploadedFile) return;
@@ -143,10 +126,10 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
     setProgressText("Validating image...");
 
     const steps = [
-      { pct: 15, text: "Validating image..." },
-      { pct: 35, text: "Preprocessing..." },
-      { pct: 55, text: "Running AI segmentation..." },
-      { pct: 75, text: "Detecting damage zones..." },
+      { pct: 15, text: "Validating image..."          },
+      { pct: 35, text: "Preprocessing..."             },
+      { pct: 55, text: "Running damage analysis..."   },
+      { pct: 75, text: "Detecting damage zones..."    },
       { pct: 90, text: "Calculating severity score..." },
     ];
 
@@ -162,7 +145,7 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
     try {
       const formData = new FormData();
       formData.append("file", uploadedFile);
-      formData.append("phone_model", phoneModel);
+      formData.append("phone_model", phoneModel || "unknown smartphone");
       formData.append("token", localStorage.getItem("token") || "");
 
       const response = await axios.post<AnalysisResult>(
@@ -180,7 +163,6 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
         setResult(response.data);
         if (response.data.image_url) setShowAnnotated(true);
 
-        // Show toast based on repairability
         if (!response.data.repairable) {
           toast.error("⛔ Screen Not Repairable", {
             description: "This screen requires full replacement.",
@@ -205,7 +187,6 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
       setProgress(0);
 
       if (axios.isAxiosError(error) && error.response?.status === 422) {
-        // Image validation failed
         const detail = error.response.data?.detail;
         toast.error("Invalid Image", {
           description: detail || "Please upload a clear photo of a smartphone screen.",
@@ -229,33 +210,34 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
   };
 
   const downloadReport = async () => {
-  if (!result) return;
-  try {
-    await generateDamageReport({
-      report_id:       result.report_id,
-      severity:        result.severity,
-      damage_score:    result.damage_score,
-      confidence:      result.confidence,
-      repair_cost_usd: result.repair_cost_usd,
-      repairable:      result.repairable,
-      repair_status:   result.repair_status,
-      recommendation:  result.recommendation,
-      repair_advice:   result.repair_advice,
-      detections:      result.detections,
-      phone_model:     phoneModel,
-      image_url:       result.image_url,
-    });
-    toast.success("PDF report downloaded!");
-  } catch (e) {
-    toast.error("Failed to generate report. Please try again.");
-    console.error(e);
-  }
-};
-  // ── Render helpers ────────────────────────────────────────────────────────
+    if (!result) return;
+    try {
+      await generateDamageReport({
+        report_id:       result.report_id,
+        severity:        result.severity,
+        damage_score:    result.damage_score,
+        confidence:      result.confidence,
+        repair_cost_usd: result.repair_cost_usd,
+        repairable:      result.repairable,
+        repair_status:   result.repair_status,
+        recommendation:  result.recommendation,
+        repair_advice:   result.repair_advice,
+        detections:      result.detections,
+        phone_model:     phoneModel,
+        image_url:       result.image_url,
+      });
+      toast.success("PDF report downloaded!");
+    } catch (e) {
+      toast.error("Failed to generate report. Please try again.");
+      console.error(e);
+    }
+  };
 
-  const display     = result ? SEVERITY_DISPLAY[result.severity] : null;
-  const repairDisp  = result?.repair_status ? REPAIR_STATUS_DISPLAY[result.repair_status] : null;
-  const displayImg  = showAnnotated && result?.image_url ? result.image_url : preview;
+  // ── Render helpers ─────────────────────────────────────────────────────
+
+  const display    = result ? SEVERITY_DISPLAY[result.severity] : null;
+  const repairDisp = result?.repair_status ? REPAIR_STATUS_DISPLAY[result.repair_status] : null;
+  const displayImg = showAnnotated && result?.image_url ? result.image_url : preview;
 
   return (
     <section id="analyze" ref={ref} className="py-24 relative">
@@ -270,13 +252,13 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
         >
           <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-full px-4 py-1.5 mb-4">
             <Brain className="w-4 h-4 text-primary" />
-            <span className="text-sm font-medium text-primary">Powered by AI</span>
+            <span className="text-sm font-medium text-primary">Powered by Advanced Analysis</span>
           </div>
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
             <span className="gradient-text">Analyze Your Screen</span>
           </h2>
           <p className="text-muted-foreground">
-            Upload a clear photo of your smartphone screen our AI analyzes damage in seconds
+            Upload a clear photo of your smartphone screen — damage is analyzed in seconds
           </p>
         </motion.div>
 
@@ -324,7 +306,6 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
                 <div className="relative rounded-2xl overflow-hidden bg-secondary/50">
                   <img src={preview} alt="Uploaded screen" className="w-full max-h-80 object-contain" />
 
-                  {/* Analyzing overlay */}
                   {isAnalyzing && (
                     <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center">
                       <div className="text-center">
@@ -359,21 +340,22 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
                   </div>
                 )}
 
-                {/* Phone model selector */}
+                {/* Phone model input */}
                 {!isAnalyzing && (
                   <div>
                     <label className="block text-sm font-medium mb-2 text-muted-foreground">
-                      Phone Model <span className="text-xs">(improves cost accuracy)</span>
+                      Phone Model <span className="text-xs text-primary">(helps give accurate repair costs)</span>
                     </label>
-                    <select
+                    <input
+                      type="text"
                       value={phoneModel}
                       onChange={(e) => setPhoneModel(e.target.value)}
-                      className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    >
-                      {PHONE_MODELS.map((m) => (
-                        <option key={m.value} value={m.value}>{m.label}</option>
-                      ))}
-                    </select>
+                      placeholder="e.g. iPhone 15 Pro, Samsung S24 Ultra, Xiaomi 14..."
+                      className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1.5">
+                      💡 The more specific you are, the more accurate the repair cost estimate
+                    </p>
                   </div>
                 )}
 
@@ -385,7 +367,7 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
                     className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-6 rounded-xl"
                   >
                     <Brain className="w-5 h-5 mr-2" />
-                    Start AI Damage Analysis
+                    Start Damage Analysis
                   </Button>
                 )}
               </motion.div>
@@ -426,22 +408,18 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
                       {(result.confidence * 100).toFixed(0)}% confidence
                     </span>
                   </div>
-
-                  {/* Damage score bar — real value from backend */}
                   <div className="flex justify-between text-xs text-muted-foreground mb-1">
                     <span>Damage Score</span>
                     <span className="font-medium">{result.damage_score.toFixed(0)} / 100</span>
                   </div>
                   <Progress value={result.damage_score} className="h-2 mb-4" />
-
-                  {/* Repair cost — real value from backend cost estimator */}
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Estimated Repair Cost</span>
                     <span className="font-bold text-lg">${result.repair_cost_usd.toFixed(0)}</span>
                   </div>
                 </div>
 
-                {/* ── Repairability card ── */}
+                {/* Repairability card */}
                 {repairDisp && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
@@ -459,12 +437,9 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
                          result.repair_status === "borderline"     ? "Get Quotes First" : "Repairable"}
                       </span>
                     </div>
-
                     <p className="text-sm text-muted-foreground leading-relaxed">
                       {result.repair_advice}
                     </p>
-
-                    {/* Not repairable warning banner */}
                     {!result.repairable && (
                       <div className="mt-3 flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">
                         <ShieldX className="w-4 h-4 text-red-500 flex-shrink-0" />
@@ -509,6 +484,58 @@ const UploadSection = forwardRef<HTMLElement>((_, ref) => {
                     </div>
                   </div>
                 )}
+
+                {/* ── Nearby Shops ── */}
+                {result.nearby_shops && result.nearby_shops.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                    className="bg-secondary/30 rounded-xl p-5 border border-border/30"
+                  >
+                    <h4 className="font-semibold mb-4 text-foreground flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-primary" />
+                      Recommended Repair Shops
+                    </h4>
+                    <div className="space-y-3">
+                      {result.nearby_shops.map((shop, i) => (
+                        <motion.div
+                          key={i}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.1 }}
+                          className="flex items-start gap-3 p-3 rounded-lg bg-background border border-border/50"
+                        >
+                          <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-bold text-primary">{i + 1}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-foreground">{shop.name}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              📍 {shop.area}{shop.city ? `, ${shop.city}` : ""}
+                            </p>
+                            {shop.specialty && (
+                              <p className="text-xs text-muted-foreground mt-0.5">{shop.specialty}</p>
+                            )}
+                            {shop.phone && (
+                              <p className="text-xs text-primary mt-0.5">📞 {shop.phone}</p>
+                            )}
+                          </div>
+                          <a
+                            href={`https://www.google.com/maps/search/${encodeURIComponent(shop.name + " " + shop.area + " Pakistan")}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary underline flex items-center gap-1 flex-shrink-0"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Map
+                          </a>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Model confidence */}
                 <div className="bg-secondary/30 rounded-xl p-5 border border-border/30">
                   <h4 className="font-semibold mb-3 text-foreground flex items-center gap-2">
