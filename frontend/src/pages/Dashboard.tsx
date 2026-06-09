@@ -555,7 +555,7 @@ const Dashboard = () => {
         </motion.div>
 
         <p className="text-xs text-muted-foreground text-center mt-6">
-          All times shown in Pakistan Standard Time (PKT, UTC+5) · 1 USD ≈ PKR 278
+         
         </p>
 
       </main>

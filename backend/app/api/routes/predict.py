@@ -81,7 +81,7 @@ Rules:
 - repair_cost_usd: budget according to given model and make sure according to Pakistan market price must be very very cheap according to Pakistan economy.
 - If no damage visible, damage_score=0, severity=low, repairable=true
 - nearby_shops: return exactly 3 real well-known repair markets or shops in Pakistan
-- Focus shops on basis of user location if possible (use "city" field in shop data)
+- Focus shops on basis of user location in Lahore
 - detections array can be empty if no damage zones identified"""
         response = client.chat.completions.create(
             model="gpt-4o",
