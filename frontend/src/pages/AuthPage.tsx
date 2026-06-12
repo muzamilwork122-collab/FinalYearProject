@@ -104,7 +104,7 @@ const AuthPage = () => {
     }
 
     if (form.password.length < 6) {
-      toast.error("Please enter a strong password (at least 6 characters)");
+      toast.error("Please enter a strong password.");
       return;
     }
 
@@ -376,7 +376,7 @@ const AuthPage = () => {
                     <div style={{ position: "relative" }}>
                       <input
                         type={showPass ? "text" : "password"}
-                        placeholder="At least 6 characters"
+                        placeholder="Please add Strong password."
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleForgotPasswordSubmit()}
@@ -544,7 +544,7 @@ const AuthPage = () => {
                     <div style={{ position: "relative" }}>
                       <input
                         type={showPass ? "text" : "password"}
-                        placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
+                        placeholder={mode === "signup" ? "Please add Strong password." : "Your password"}
                         value={form.password}
                         onChange={update("password")}
                         onKeyDown={(e) => e.key === "Enter" && submit()}
