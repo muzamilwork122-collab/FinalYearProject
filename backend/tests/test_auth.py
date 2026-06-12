@@ -10,7 +10,7 @@ import uuid
 
 # ── Shared email helper ────────────────────────────────────────────
 def unique_email():
-    return f"test_{uuid.uuid4().hex[:8]}@screenai.test"
+    return f"test_{uuid.uuid4().hex[:8]}@gmail.com"
 
 
 def create_user(client, email=None, password="pass123456"):
@@ -72,6 +72,27 @@ class TestSignup:
             "email": "incomplete@test.com"
         })
         assert resp.status_code == 422
+
+    def test_signup_numeric_name_rejected(self, client):
+        resp = client.post("/api/auth/signup", json={
+            "name": "Test123", "email": unique_email(), "password": "password123"
+        })
+        assert resp.status_code == 400
+        assert "numeric" in resp.json()["detail"].lower()
+
+    def test_signup_invalid_email_rejected(self, client):
+        resp = client.post("/api/auth/signup", json={
+            "name": "Test User", "email": "invalid_email_format", "password": "password123"
+        })
+        assert resp.status_code == 400
+        assert "email" in resp.json()["detail"].lower()
+
+    def test_signup_non_gmail_rejected(self, client):
+        resp = client.post("/api/auth/signup", json={
+            "name": "Test User", "email": "test@outlook.com", "password": "password123"
+        })
+        assert resp.status_code == 400
+        assert "gmail" in resp.json()["detail"].lower()
 
 
 # ══════════════════════════════════════════
@@ -169,3 +190,119 @@ class TestGetMe:
     def test_get_me_with_empty_token(self, client):
         resp = client.get("/api/auth/me?token=")
         assert resp.status_code in [401, 422]
+
+
+# ══════════════════════════════════════════
+# FORGOT PASSWORD TESTS
+# ══════════════════════════════════════════
+
+class TestForgotPassword:
+
+    def test_forgot_password_success(self, client):
+        email = unique_email()
+        client.post("/api/auth/signup", json={
+            "name": "Reset User", "email": email, "password": "oldpassword123"
+        })
+        resp = client.post("/api/auth/forgot-password", json={
+            "email": email, "new_password": "newpassword123"
+        })
+        assert resp.status_code == 200
+        
+        # Verify login works with new password
+        login_resp = client.post("/api/auth/login", json={
+            "email": email, "password": "newpassword123"
+        })
+        assert login_resp.status_code == 200
+
+    def test_forgot_password_nonexistent_email(self, client):
+        resp = client.post("/api/auth/forgot-password", json={
+            "email": "notfound@gmail.com", "new_password": "newpassword123"
+        })
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+        
+    def test_forgot_password_short_password(self, client):
+        resp = client.post("/api/auth/forgot-password", json={
+            "email": "any@gmail.com", "new_password": "123"
+        })
+        assert resp.status_code == 400
+
+
+# ══════════════════════════════════════════
+# GOOGLE AUTH TESTS
+# ══════════════════════════════════════════
+
+class TestGoogleAuth:
+
+    def test_google_auth_new_user_success(self, client, monkeypatch):
+        # Mock httpx response from Google
+        class MockResponse:
+            status_code = 200
+            def json(self):
+                return {
+                    "email": "googleuser@screenai.test",
+                    "name": "Google User",
+                    "aud": "dummy_client_id"
+                }
+        
+        async def mock_get(*args, **kwargs):
+            return MockResponse()
+
+        import httpx
+        monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+        
+        # Mock config setting to bypass aud mismatch
+        from app.core.config import settings
+        monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "dummy_client_id")
+
+        resp = client.post("/api/auth/google", json={"credential": "dummy_token"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "token" in data
+        assert data["user"]["email"] == "googleuser@screenai.test"
+        assert data["user"]["name"] == "Google User"
+
+    def test_google_auth_existing_user_success(self, client, monkeypatch):
+        email = "googleuser_existing@screenai.test"
+        # First create user
+        client.post("/api/auth/signup", json={
+            "name": "Original Name", "email": email, "password": "password123"
+        })
+
+        class MockResponse:
+            status_code = 200
+            def json(self):
+                return {
+                    "email": email,
+                    "name": "Google Name",
+                    "aud": "dummy_client_id"
+                }
+        
+        async def mock_get(*args, **kwargs):
+            return MockResponse()
+
+        import httpx
+        monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+
+        from app.core.config import settings
+        monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "dummy_client_id")
+
+        resp = client.post("/api/auth/google", json={"credential": "dummy_token"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "token" in data
+        assert data["user"]["email"] == email
+
+    def test_google_auth_invalid_token(self, client, monkeypatch):
+        class MockResponse:
+            status_code = 400
+            text = "Invalid credential"
+        
+        async def mock_get(*args, **kwargs):
+            return MockResponse()
+
+        import httpx
+        monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+
+        resp = client.post("/api/auth/google", json={"credential": "invalid_token"})
+        assert resp.status_code == 400

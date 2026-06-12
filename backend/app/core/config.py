@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY:    str = ""
     ANTHROPIC_API_KEY: str = ""
     FRONTEND_URL:      str = "http://localhost:5173"
+    GOOGLE_CLIENT_ID:  str = ""
 
     class Config:
         env_file          = ".env"

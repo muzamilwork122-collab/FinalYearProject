@@ -12,6 +12,7 @@ import Dashboard from "./pages/Dashboard";
 
 const queryClient = new QueryClient();
 
+
 // ── Protected route — redirects to /login if not logged in ────────────────
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem("token");
@@ -33,7 +34,7 @@ const AuthRoute = ({ children }: { children: React.ReactNode }) => {
 const loginTime = localStorage.getItem("login_time");
 if (loginTime) {
   const hours = (Date.now() - parseInt(loginTime)) / (1000 * 60);
-  if (hours > 2) {
+  if (hours > 10) {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     localStorage.removeItem("login_time");
@@ -41,6 +42,8 @@ if (loginTime) {
 }
 
 const App = () => (
+   
+
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
@@ -62,6 +65,7 @@ const App = () => (
           <Route path="/pricing" element={
             <ProtectedRoute><Pricing /></ProtectedRoute>
           } />
+          
 
           <Route path="*" element={<NotFound />} />
          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -69,6 +73,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
+  
 );
 
 export default App;
