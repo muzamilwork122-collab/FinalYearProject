@@ -171,7 +171,7 @@ export default function AnalysisChat({ context }: AnalysisChatProps) {
       const response = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next, token: token || null, context: groundingContext }),
+        body: JSON.stringify({ messages: next, token: token || null, context: groundingContext, ephemeral: true }),
       });
       if (!response.ok) throw new Error(`Server error ${response.status}`);
       const data = await response.json();
