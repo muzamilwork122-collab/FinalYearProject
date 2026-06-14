@@ -27,6 +27,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     token: Optional[str] = None   # user token for saving history
+    context: Optional[str] = None  # optional summary of the user's own analyses
 
 
 class ChatHistoryResponse(BaseModel):
@@ -59,7 +60,7 @@ def rule_based_response(user_message: str) -> str:
     return "I can help with screen damage questions! Ask me about repair costs in PKR, cracks, dead pixels, or upload a photo above for AI analysis."
 
 
-async def llm_response(messages: List[ChatMessage]) -> str:
+async def llm_response(messages: List[ChatMessage], context: Optional[str] = None) -> str:
     key = settings.OPENAI_API_KEY
     if not key:
         last = next((m.content for m in reversed(messages) if m.role == "user"), "")
@@ -67,7 +68,14 @@ async def llm_response(messages: List[ChatMessage]) -> str:
     try:
         from openai import OpenAI
         client = OpenAI(api_key=key)
-        openai_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        system_prompt = SYSTEM_PROMPT
+        if context:
+            system_prompt += (
+                "\n\nThe user has run screen-damage analyses on this app. "
+                "Use this summary of THEIR results to give personalised, specific advice. "
+                "Refer to their actual numbers when relevant:\n" + context
+            )
+        openai_messages = [{"role": "system", "content": system_prompt}]
         for m in messages[-20:]:  # send last 20 messages for context
             if m.role in ("user", "assistant"):
                 openai_messages.append({"role": m.role, "content": m.content})
@@ -132,8 +140,8 @@ async def chat(request: Request, request_body: ChatRequest, db: Session = Depend
     user_id = None
     if request_body.token:
         try:
-            from app.api.routes.auth import _tokens
-            user_id = _tokens.get(request_body.token)
+            from app.api.routes.auth import resolve_token
+            user_id = resolve_token(request_body.token)
         except Exception:
             pass
 
@@ -145,7 +153,7 @@ async def chat(request: Request, request_body: ChatRequest, db: Session = Depend
     else:
         all_messages = request_body.messages
 
-    reply = await llm_response(all_messages)
+    reply = await llm_response(all_messages, context=request_body.context)
 
     # Save to DB if user is logged in
     if user_id:
@@ -162,8 +170,8 @@ def get_chat_history(token: str, db: Session = Depends(get_db)):
     Called when the chat widget opens.
     """
     try:
-        from app.api.routes.auth import _tokens
-        user_id = _tokens.get(token)
+        from app.api.routes.auth import resolve_token
+        user_id = resolve_token(token)
         if not user_id:
             return {"messages": []}
         messages = load_history_from_db(db, user_id, limit=100)
@@ -177,8 +185,8 @@ def get_chat_history(token: str, db: Session = Depends(get_db)):
 def clear_chat_history(token: str, db: Session = Depends(get_db)):
     """Clear all chat history for the logged-in user."""
     try:
-        from app.api.routes.auth import _tokens
-        user_id = _tokens.get(token)
+        from app.api.routes.auth import resolve_token
+        user_id = resolve_token(token)
         if not user_id:
             return {"message": "Not authenticated"}
         uid = uuid.UUID(user_id)

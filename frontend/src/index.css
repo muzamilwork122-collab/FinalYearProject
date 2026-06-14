@@ -1,77 +1,123 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
-/* AI Screen Damage Detector - Warm Gray & Gold Theme */
+/* Screen Damage Detector — blue & white system.
+   Light only. Crisp white surfaces, a confident blue accent, slate text,
+   soft elevation. Green/amber/red are reserved strictly for damage-severity. */
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 210 40% 12%;
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 210 40% 12%;
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 210 40% 12%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 172 66% 45%;
+    --primary: 221 83% 53%;
     --primary-foreground: 0 0% 100%;
+    /* Bottom stop of the primary-button gradient (kept separate from chip text). */
+    --primary-deep: 224 76% 44%;
 
-    --secondary: 210 15% 93%;
-    --secondary-foreground: 210 40% 20%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 38% 20%;
 
-    --muted: 210 15% 95%;
-    --muted-foreground: 210 20% 45%;
+    --muted: 210 40% 97%;
+    --muted-foreground: 215 16% 47%;
 
-    --accent: 172 50% 38%;
+    --accent: 221 83% 53%;
     --accent-foreground: 0 0% 100%;
+
+    /* Tints for soft fills (chips, hover states, hero wash) */
+    --accent-soft: 214 95% 93%;
+    --accent-strong: 224 76% 44%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 160 60% 45%;
+    --success: 152 56% 36%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 38 92% 50%;
-    --warning-foreground: 210 40% 12%;
+    --warning: 33 92% 47%;
+    --warning-foreground: 28 40% 12%;
 
-    --border: 210 20% 88%;
-    --input: 210 20% 90%;
-    --ring: 172 66% 45%;
+    --border: 214 32% 91%;
+    --input: 214 30% 88%;
+    --ring: 221 83% 53%;
 
     --radius: 0.75rem;
 
-    /* Custom gradients - clean teal tones */
-    --gradient-primary: linear-gradient(135deg, hsl(172 66% 45%) 0%, hsl(172 60% 35%) 100%);
-    --gradient-accent: linear-gradient(135deg, hsl(172 50% 38%) 0%, hsl(180 45% 30%) 100%);
-    --gradient-dark: linear-gradient(180deg, hsl(210 25% 97%) 0%, hsl(210 20% 94%) 100%);
-    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%) 0%, hsl(210 15% 98%) 100%);
-    --gradient-glow: radial-gradient(ellipse at center, hsl(172 66% 45% / 0.08) 0%, transparent 70%);
-    
-    /* 3D Background layers - light theme */
-    --gradient-3d-base: radial-gradient(ellipse 80% 50% at 50% -20%, hsl(172 40% 85% / 0.4) 0%, transparent 50%),
-                        radial-gradient(ellipse 60% 40% at 80% 80%, hsl(210 20% 96% / 0.8) 0%, transparent 50%),
-                        radial-gradient(ellipse 70% 50% at 20% 90%, hsl(210 25% 94% / 0.6) 0%, transparent 50%),
-                        linear-gradient(180deg, hsl(210 20% 98%) 0%, hsl(210 15% 96%) 40%, hsl(210 20% 94%) 100%);
-    --gradient-3d-overlay: radial-gradient(circle at 30% 20%, hsl(172 50% 70% / 0.08) 0%, transparent 40%),
-                           radial-gradient(circle at 70% 60%, hsl(172 40% 60% / 0.05) 0%, transparent 35%);
-    
-    /* Shadows - soft teal glow */
-    --shadow-glow: 0 0 40px hsl(172 66% 45% / 0.12);
-    --shadow-card: 0 8px 32px hsl(210 30% 20% / 0.08);
-    --shadow-button: 0 4px 20px hsl(172 66% 45% / 0.2);
+    /* Elevation scale — soft, blue-tinted shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(221 45% 25% / 0.06);
+    --shadow-md: 0 6px 16px -4px hsl(221 45% 25% / 0.10), 0 2px 6px -2px hsl(221 45% 25% / 0.06);
+    --shadow-lg: 0 20px 40px -12px hsl(221 50% 25% / 0.18);
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 210 40% 12%;
-    --sidebar-primary: 172 66% 45%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 221 83% 53%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 15% 95%;
-    --sidebar-accent-foreground: 210 40% 20%;
-    --sidebar-border: 210 20% 88%;
-    --sidebar-ring: 172 66% 45%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 222 38% 20%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 221 83% 53%;
+  }
+
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 41% 11%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 41% 11%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --primary-deep: 221 83% 48%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 92%;
+
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --accent-soft: 217 45% 20%;
+    --accent-strong: 213 94% 78%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 50% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 33 90% 55%;
+    --warning-foreground: 28 40% 12%;
+
+    --border: 217 33% 20%;
+    --input: 217 33% 24%;
+    --ring: 217 91% 60%;
+
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.30);
+    --shadow-md: 0 6px 16px -4px hsl(0 0% 0% / 0.45), 0 2px 6px -2px hsl(0 0% 0% / 0.35);
+    --shadow-lg: 0 20px 40px -12px hsl(0 0% 0% / 0.55);
+
+    --sidebar-background: 222 41% 11%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 92%;
+    --sidebar-border: 217 33% 20%;
+    --sidebar-ring: 217 91% 60%;
   }
 }
 
@@ -87,95 +133,119 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;
-    background: var(--gradient-3d-base);
-    position: relative;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: var(--gradient-3d-overlay);
-    pointer-events: none;
-    z-index: 0;
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    @apply tracking-tight;
   }
 
-  #root {
-    position: relative;
-    z-index: 1;
-  }
-
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight;
-  }
-
-  code, pre {
+  code,
+  pre,
+  .font-mono {
     font-family: 'JetBrains Mono', monospace;
+  }
+
+  ::selection {
+    background: hsl(var(--accent) / 0.18);
   }
 }
 
 @layer components {
-  .perspective-1000 {
-    perspective: 1000px;
+  /* Mono uppercase label used for section eyebrows, e.g. "02 — Analysis" */
+  .label-mono {
+    font-family: 'JetBrains Mono', monospace;
+    @apply text-xs uppercase tracking-[0.2em] text-primary;
   }
 
-  .glass-card {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-xl;
-    box-shadow: var(--shadow-card);
+  /* Bordered white surface with soft elevation — the base card treatment. */
+  .surface {
+    @apply bg-card border border-border rounded-[var(--radius)];
+    box-shadow: var(--shadow-sm);
   }
 
-  .glow-effect {
-    box-shadow: var(--shadow-glow);
+  /* Interactive surface — lifts on hover (use for clickable cards). */
+  .surface-interactive {
+    @apply bg-card border border-border rounded-[var(--radius)] transition-all duration-200;
+    box-shadow: var(--shadow-sm);
   }
 
-  .gradient-text {
-    background: var(--gradient-primary);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+  .surface-interactive:hover {
+    box-shadow: var(--shadow-md);
+    border-color: hsl(var(--accent) / 0.45);
+    transform: translateY(-2px);
   }
 
-  .gradient-border {
-    position: relative;
+  /* Soft blue chip/pill — eyebrows, tags, status fills. */
+  .chip-accent {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold;
+    background: hsl(var(--accent-soft));
+    color: hsl(var(--accent-strong));
   }
 
-  .gradient-border::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    background: var(--gradient-primary);
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
+  /* Primary action with depth + subtle gradient for polish. */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-[var(--radius)] px-5 py-3 text-sm font-semibold text-primary-foreground transition-all duration-200;
+    background-image: linear-gradient(180deg, hsl(var(--primary)) 0%, hsl(var(--primary-deep)) 100%);
+    box-shadow: var(--shadow-sm);
   }
 
-  .scan-line {
-    background: linear-gradient(90deg, transparent 0%, hsl(172 66% 45% / 0.6) 50%, transparent 100%);
-    animation: scan 2s ease-in-out infinite;
+  .btn-primary:hover {
+    box-shadow: var(--shadow-md);
+    filter: brightness(1.05);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
   }
 
-  @keyframes scan {
-    0%, 100% { transform: translateY(-100%); opacity: 0; }
-    50% { transform: translateY(100%); opacity: 1; }
+  .shadow-soft {
+    box-shadow: var(--shadow-md);
   }
 
-  @keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 20px hsl(172 66% 45% / 0.25); }
-    50% { box-shadow: 0 0 40px hsl(172 66% 45% / 0.4); }
+  .shadow-float {
+    box-shadow: var(--shadow-lg);
   }
 
-  @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
+  /* Hairline grid backdrop for hero/feature bands. */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--border) / 0.7) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.7) 1px, transparent 1px);
+    background-size: 44px 44px;
   }
 
-  .animate-pulse-glow {
-    animation: pulse-glow 2s ease-in-out infinite;
+  /* Soft radial blue wash for hero/CTA bands — adds depth on white. */
+  .bg-hero-wash {
+    background:
+      radial-gradient(60% 80% at 85% 10%, hsl(var(--accent-soft) / 0.7) 0%, transparent 60%),
+      radial-gradient(50% 60% at 0% 100%, hsl(214 100% 97% / 0.9) 0%, transparent 55%),
+      hsl(var(--background));
   }
 
-  .animate-float {
-    animation: float 3s ease-in-out infinite;
+  .dark .bg-hero-wash {
+    background:
+      radial-gradient(60% 80% at 85% 10%, hsl(217 60% 22% / 0.5) 0%, transparent 60%),
+      radial-gradient(50% 60% at 0% 100%, hsl(222 45% 14% / 0.9) 0%, transparent 55%),
+      hsl(var(--background));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -1,75 +1,48 @@
-import { Smartphone, Github, Twitter, Linkedin, Heart } from "lucide-react";
-import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
+import { ScanLine } from "lucide-react";
 
-const Footer = () => {
-  
+export default function Footer() {
+  const year = new Date().getFullYear();
 
   return (
-    <motion.footer 
-      className="border-t border-border/30 py-12 mt-12 relative overflow-hidden"
-      initial={{ opacity: 0 }}
-      whileInView={{ opacity: 1 }}
-      viewport={{ once: true }}
-    >
-      {/* Background glow */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-96 h-32 bg-primary/5 blur-3xl" />
-      </div>
-
-      <div className="container mx-auto px-6 relative z-10">
-        <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-          <motion.div 
-            className="flex items-center gap-3"
-            whileHover={{ scale: 1.02 }}
-          >
-            <motion.div 
-              className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center"
-              whileHover={{ rotate: 360 }}
-              transition={{ duration: 0.5 }}
-            >
-              <Smartphone className="w-5 h-5 text-primary" />
-            </motion.div>
-            <div>
-              <span className="font-bold gradient-text text-lg">ScreenScan AI</span>
-              <p className="text-xs text-muted-foreground">Damage Detection System</p>
-            </div>
-          </motion.div>
-
-          <motion.div 
-            className="text-sm text-muted-foreground text-center"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-          >
-            
-            
-          </motion.div>
-
-          
+    <footer className="border-t border-border">
+      <div className="container mx-auto flex flex-col gap-8 px-6 py-12 md:flex-row md:items-start md:justify-between">
+        <div className="max-w-xs">
+          <Link to="/" className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius)] bg-accent text-accent-foreground">
+              <ScanLine className="h-4 w-4" />
+            </span>
+            <span className="font-display text-base font-semibold tracking-tight">ScreenScan</span>
+          </Link>
+          <p className="mt-3 text-sm text-muted-foreground">
+            AI phone-screen damage analysis with repair-cost estimates in PKR.
+          </p>
         </div>
 
-        {/* Bottom links */}
-        <motion.div 
-          className="flex flex-wrap justify-center gap-6 mt-8 pt-6 border-t border-border/30"
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-          transition={{ delay: 0.3 }}
-        >
-          {["Privacy Policy", "Terms of Service", "Contact Us"].map((link, index) => (
-            <motion.a
-              key={index}
-              href="#"
-              className="text-sm text-muted-foreground hover:text-primary transition-colors"
-              whileHover={{ scale: 1.05 }}
+        <nav className="flex flex-col gap-2">
+          <span className="label-mono mb-1">Pages</span>
+          {[
+            { label: "Home", to: "/" },
+            { label: "Features", to: "/features" },
+            { label: "Pricing", to: "/pricing" },
+          ].map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              {link}
-            </motion.a>
+              {item.label}
+            </Link>
           ))}
-        </motion.div>
+        </nav>
       </div>
-    </motion.footer>
-  );
-};
 
-export default Footer;
+      <div className="border-t border-border">
+        <div className="container mx-auto flex flex-col gap-2 px-6 py-5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <span>© {year} ScreenScan — final-year project.</span>
+          <span>Uploaded images are analysed, not shared.</span>
+        </div>
+      </div>
+    </footer>
+  );
+}

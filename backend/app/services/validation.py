@@ -100,7 +100,7 @@ def validate_image_bytes(image_bytes: bytes) -> dict:
     if not is_screen:
         return {
             "valid":           False,
-            "error":           "Please upload a clear photo of a smartphone screen only.",
+            "error":           friendly_screen_error(screen_reason),
             "is_phone_screen": False,
             "confidence":      screen_confidence,
             "reason":          "not_phone_screen"
@@ -109,12 +109,14 @@ def validate_image_bytes(image_bytes: bytes) -> dict:
     # ── AI strict validation (final gate) ─────────────────────────
     ai_result = validate_with_ai(image_bytes)
     if not ai_result["valid"]:
+        seen = ai_result.get("detail")
+        base = (
+            f"This looks like {seen}, not a phone screen. "
+            if seen else "This does not look like a phone-screen photo. "
+        )
         return {
             "valid":           False,
-            "error":           (
-                "This does not appear to be a smartphone screen photo. "
-                "Please upload a direct photo of a mobile phone screen."
-            ),
+            "error":           base + "Please upload a clear, straight-on photo of a mobile phone's screen.",
             "is_phone_screen": False,
             "confidence":      0.0,
             "reason":          "ai_rejected"
@@ -128,6 +130,32 @@ def validate_image_bytes(image_bytes: bytes) -> dict:
         "reason":          "valid"
     }
 
+
+
+def friendly_screen_error(screen_reason: str) -> str:
+    """Turn an internal OpenCV reason string into a clear, actionable message."""
+    reason = (screen_reason or "").lower()
+    if "aspect ratio" in reason:
+        return (
+            "The photo isn't shaped like a phone screen. Take a straight-on shot "
+            "so the whole screen fills the frame (avoid cropping it square)."
+        )
+    if "blank" in reason or "solid color" in reason:
+        return (
+            "The image looks blank or a single solid colour. Turn the screen on "
+            "and make sure the display is clearly visible before taking the photo."
+        )
+    if "outdoor" in reason or "nature" in reason:
+        return (
+            "This looks like a regular photo or scene, not a phone screen. "
+            "Please upload a close-up of the phone's screen only."
+        )
+    if "edges" in reason or "cluttered" in reason:
+        return (
+            "The photo looks too busy to be a phone screen. Remove background "
+            "clutter and fill the frame with just the screen."
+        )
+    return "Please upload a clear, straight-on photo of a smartphone screen only."
 
 
 def check_is_phone_screen(img_bgr: np.ndarray) -> tuple:
@@ -364,7 +392,7 @@ def validate_with_ai(image_bytes: bytes) -> dict:
 
         response = client.chat.completions.create(
             model      = "gpt-4o-mini",
-            max_tokens = 10,
+            max_tokens = 20,
             messages   = [
                 {
                     "role": "user",
@@ -380,7 +408,9 @@ def validate_with_ai(image_bytes: bytes) -> dict:
                             "type": "text",
                             "text": (
                                 "Is this image a photo of a smartphone or mobile phone screen? "
-                                "Answer only YES or NO."
+                                "If yes, answer exactly 'YES'. "
+                                "If no, answer 'NO:' followed by 2-4 words naming what the image "
+                                "actually shows (e.g. 'NO: a laptop keyboard', 'NO: a cat')."
                             )
                         }
                     ]
@@ -388,13 +418,17 @@ def validate_with_ai(image_bytes: bytes) -> dict:
             ]
         )
 
-        answer = response.choices[0].message.content.strip().upper()
+        answer = response.choices[0].message.content.strip()
         logger.info(f"AI screen validation answer: {answer}")
 
-        if "YES" in answer:
-            return {"valid": True,  "reason": "ai_confirmed_phone_screen"}
-        else:
-            return {"valid": False, "reason": "ai_rejected_not_phone_screen"}
+        if answer.upper().startswith("YES"):
+            return {"valid": True, "reason": "ai_confirmed_phone_screen"}
+
+        # Extract the short description after "NO:" for a helpful message.
+        detail = None
+        if ":" in answer:
+            detail = answer.split(":", 1)[1].strip().rstrip(".").lower() or None
+        return {"valid": False, "reason": "ai_rejected_not_phone_screen", "detail": detail}
 
     except Exception as e:
         logger.error(f"AI validation failed: {e}")

@@ -20,8 +20,6 @@ limiter = Limiter(key_func=get_remote_address)
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_tokens: dict[str, str] = {}
-
 class SignupRequest(BaseModel):
     name: str
     email: str
@@ -38,6 +36,19 @@ class ForgotPasswordRequest(BaseModel):
     email: str
     new_password: str
 
+class UpdateProfileRequest(BaseModel):
+    token: str
+    name: str
+
+class ChangePasswordRequest(BaseModel):
+    token: str
+    current_password: str
+    new_password: str
+
+class DeleteAccountRequest(BaseModel):
+    token: str
+    password: str
+
 class UserOut(BaseModel):
     id: str
     name: str
@@ -47,6 +58,82 @@ class AuthResponse(BaseModel):
     token: str
     user: UserOut
 
+# ── Validation ───────────────────────────────────────────────────────────────
+
+# Placeholder / disposable domains that look syntactically valid but cannot
+# receive real mail. Rejected deterministically (no DNS needed).
+FAKE_EMAIL_DOMAINS = {
+    "nomail.com", "example.com", "example.org", "example.net", "test.com",
+    "mailinator.com", "tempmail.com", "temp-mail.org", "guerrillamail.com",
+    "10minutemail.com", "fakeinbox.com", "trashmail.com", "yopmail.com",
+    "getnada.com", "dispostable.com", "throwawaymail.com", "sharklasers.com",
+    "maildrop.cc", "mailnesia.com", "discard.email", "fake.com", "nowhere.com",
+}
+
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+# Letters (incl. accented), spaces, hyphens and apostrophes — no digits/symbols.
+NAME_RE = re.compile(r"^[A-Za-z\u00C0-\u024F]+(?:[ '\-][A-Za-z\u00C0-\u024F]+)*$")
+
+
+def validate_name(name: str) -> str:
+    cleaned = (name or "").strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if any(char.isdigit() for char in cleaned):
+        raise HTTPException(status_code=400, detail="Name cannot contain numeric characters")
+    if not NAME_RE.match(cleaned):
+        raise HTTPException(
+            status_code=400,
+            detail="Name can only contain letters, spaces, hyphens and apostrophes",
+        )
+    if len(cleaned) > 50:
+        raise HTTPException(status_code=400, detail="Name is too long (max 50 characters)")
+    return cleaned
+
+
+def validate_password(password: str) -> None:
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(status_code=400, detail="Password must include a lowercase letter")
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(status_code=400, detail="Password must include an uppercase letter")
+    if not re.search(r"\d", password):
+        raise HTTPException(status_code=400, detail="Password must include a number")
+    if not re.search(r"[^A-Za-z0-9]", password):
+        raise HTTPException(status_code=400, detail="Password must include a special character")
+
+
+def validate_email_address(email: str) -> str:
+    """Validate format, reject placeholder domains, and (outside tests) verify
+    the domain can actually receive mail via a DNS/MX lookup."""
+    cleaned = (email or "").strip().lower()
+    if not EMAIL_RE.match(cleaned):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
+
+    domain = cleaned.rsplit("@", 1)[-1]
+    if domain in FAKE_EMAIL_DOMAINS:
+        raise HTTPException(
+            status_code=400,
+            detail=f'"{domain}" is not a real email domain. Please use a valid email address.',
+        )
+
+    # Authoritative deliverability check (skipped during tests to stay offline-safe).
+    if not os.getenv("TESTING"):
+        try:
+            from email_validator import validate_email as _validate, EmailNotValidError
+            _validate(cleaned, check_deliverability=True)
+        except EmailNotValidError:
+            raise HTTPException(
+                status_code=400,
+                detail=f'"{domain}" doesn\'t appear to accept email. Please use a real email address.',
+            )
+        except Exception as exc:  # transient DNS/network failure — don't block signup
+            logger.warning(f"Email deliverability check skipped for {cleaned}: {exc}")
+
+    return cleaned
+
+
 def hash_password(password: str) -> str:
     salt = "screenai_salt_2026"
     return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
@@ -54,8 +141,30 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return hash_password(password) == hashed
 
-def generate_token() -> str:
-    return secrets.token_hex(32)
+
+# ── Stateless tokens ───────────────────────────────────────────────────────
+# Token = "<user_id>.<hmac_sig>". Because the signature is derived from the
+# user id + SECRET_KEY, any process can verify it without shared memory — so
+# sessions survive server restarts (the previous in-memory dict did not).
+
+import hmac
+
+def _sign(user_id: str) -> str:
+    return hmac.new(settings.SECRET_KEY.encode(), user_id.encode(), hashlib.sha256).hexdigest()
+
+def generate_token(user_id: str) -> str:
+    return f"{user_id}.{_sign(user_id)}"
+
+def resolve_token(token: str) -> str | None:
+    """Return the user id encoded in a valid token, else None."""
+    if not token or "." not in token:
+        return None
+    user_id, _, signature = token.rpartition(".")
+    if not user_id or not signature:
+        return None
+    if not hmac.compare_digest(signature, _sign(user_id)):
+        return None
+    return user_id
 
 import os
 _limit = "1000/minute" if os.getenv("TESTING") == "true" else "3/minute"
@@ -64,34 +173,24 @@ _limit = "1000/minute" if os.getenv("TESTING") == "true" else "3/minute"
 @limiter.limit(_limit)
 
 def signup(request: Request, request_body: SignupRequest, db: Session = Depends(get_db)):
-    if len(request_body.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    if not request_body.name.strip():
-        raise HTTPException(status_code=400, detail="Name is required")
-    if any(char.isdigit() for char in request_body.name):
-        raise HTTPException(status_code=400, detail="Name cannot contain numeric characters")
-    
-    EMAIL_REGEX = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
-    if not re.match(EMAIL_REGEX, request_body.email):
-        raise HTTPException(status_code=400, detail="Invalid email format")
-    if not request_body.email.lower().strip().endswith("@gmail.com"):
-        raise HTTPException(status_code=400, detail="Only Gmail addresses (@gmail.com) are allowed to register")
+    validate_password(request_body.password)
+    name = validate_name(request_body.name)
+    email = validate_email_address(request_body.email)
 
-    existing = db.query(User).filter(User.email == request_body.email.lower()).first()
+    existing = db.query(User).filter(User.email == email).first()
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered. Please sign in.")
     user = User(
         id=uuid.uuid4(),
-        name=request_body.name.strip(),
-        email=request_body.email.lower().strip(),
+        name=name,
+        email=email,
         password_hash=hash_password(request_body.password),
         created_at=datetime.utcnow(),
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    token = generate_token()
-    _tokens[token] = str(user.id)
+    token = generate_token(str(user.id))
     logger.info(f"New user registered: {user.email}")
     return AuthResponse(token=token, user=UserOut(id=str(user.id), name=user.name, email=user.email))
 
@@ -105,25 +204,65 @@ def login(request: Request, request_body: LoginRequest, db: Session = Depends(ge
     user = db.query(User).filter(User.email == request_body.email.lower()).first()
     if not user or not verify_password(request_body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
-    token = generate_token()
-    _tokens[token] = str(user.id)
+    token = generate_token(str(user.id))
     logger.info(f"User logged in: {user.email}")
     return AuthResponse(token=token, user=UserOut(id=str(user.id), name=user.name, email=user.email))
 
 @router.post("/auth/logout")
 def logout(token: str):
-    _tokens.pop(token, None)
+    # Tokens are stateless — logout is handled client-side by discarding the token.
     return {"message": "Logged out successfully"}
 
-@router.get("/auth/me")
-def get_me(token: str, db: Session = Depends(get_db)):
-    user_id = _tokens.get(token)
+def _user_from_token(token: str, db: Session) -> User:
+    user_id = resolve_token(token)
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     user = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@router.get("/auth/me")
+def get_me(token: str, db: Session = Depends(get_db)):
+    user = _user_from_token(token, db)
     return UserOut(id=str(user.id), name=user.name, email=user.email)
+
+
+@router.patch("/auth/profile", response_model=UserOut)
+def update_profile(request_body: UpdateProfileRequest, db: Session = Depends(get_db)):
+    user = _user_from_token(request_body.token, db)
+    user.name = validate_name(request_body.name)
+    db.commit()
+    db.refresh(user)
+    logger.info(f"Profile updated for user: {user.email}")
+    return UserOut(id=str(user.id), name=user.name, email=user.email)
+
+
+@router.post("/auth/change-password")
+def change_password(request_body: ChangePasswordRequest, db: Session = Depends(get_db)):
+    user = _user_from_token(request_body.token, db)
+    if not verify_password(request_body.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    validate_password(request_body.new_password)
+    if verify_password(request_body.new_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="New password must be different from the current one")
+    user.password_hash = hash_password(request_body.new_password)
+    db.commit()
+    logger.info(f"Password changed for user: {user.email}")
+    return {"message": "Password changed successfully"}
+
+
+@router.post("/auth/delete-account")
+def delete_account(request_body: DeleteAccountRequest, db: Session = Depends(get_db)):
+    user = _user_from_token(request_body.token, db)
+    if not verify_password(request_body.password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect")
+    email = user.email
+    db.delete(user)
+    db.commit()
+    logger.info(f"Account deleted: {email}")
+    return {"message": "Account deleted"}
 
 @router.post("/auth/google", response_model=AuthResponse)
 async def google_auth(request_body: GoogleAuthRequest, db: Session = Depends(get_db)):
@@ -150,8 +289,6 @@ async def google_auth(request_body: GoogleAuthRequest, db: Session = Depends(get
     name = google_user.get("name", "Google User")
     if not email:
         raise HTTPException(status_code=400, detail="Email not provided by Google")
-    if not email.lower().strip().endswith("@gmail.com"):
-        raise HTTPException(status_code=400, detail="Only Gmail addresses (@gmail.com) are allowed to register")
 
     # Lowercase email and check if user exists
     email_lower = email.lower().strip()
@@ -173,18 +310,13 @@ async def google_auth(request_body: GoogleAuthRequest, db: Session = Depends(get
     else:
         logger.info(f"User signed in via Google Sign-In: {email_lower}")
 
-    token = generate_token()
-    _tokens[token] = str(user.id)
+    token = generate_token(str(user.id))
     return AuthResponse(token=token, user=UserOut(id=str(user.id), name=user.name, email=user.email))
 
 @router.post("/auth/forgot-password")
 def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
-    if len(request.new_password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    
-    email_lower = request.email.lower().strip()
-    if not email_lower.endswith("@gmail.com"):
-        raise HTTPException(status_code=400, detail="Only Gmail addresses (@gmail.com) are allowed")
+    validate_password(request.new_password)
+    email_lower = validate_email_address(request.email)
     user = db.query(User).filter(User.email == email_lower).first()
     if not user:
         raise HTTPException(status_code=404, detail="Email address not found")

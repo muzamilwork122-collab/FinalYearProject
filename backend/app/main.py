@@ -11,7 +11,6 @@ from app.core.logging import setup_logging
 from app.api.routes.predict import router as predict_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.auth import router as auth_router
-from app.models.model_loader import load_all_models
 from app.db.database import create_tables
 from app.db import models  # noqa: F401
 
@@ -44,12 +43,17 @@ app = FastAPI(
 # ── Attach rate limiter to app ─────────────────────────────────────────────
 
 
+# Fully permissive CORS — allow every origin, method, and header.
+# allow_origin_regex=".*" echoes the request's Origin back, which (unlike the
+# "*" wildcard) also works for credentialed requests, so the browser never
+# blocks an API call regardless of where the frontend is served from.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origin_regex=".*",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 app.include_router(predict_router, prefix="/api")

@@ -1,205 +1,89 @@
-import { Upload, Sparkles, ArrowRight, Play } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { motion } from "framer-motion";
+import { ArrowRight } from "lucide-react";
 import heroCrackedPhone from "@/assets/hero-cracked-phone.webp";
 
 interface HeroSectionProps {
   onScrollToUpload: () => void;
 }
 
-const HeroSection = ({ onScrollToUpload }: HeroSectionProps) => {
+const OUTPUTS = ["Severity score /100", "Repair cost in PKR", "Nearby repair shops"];
+
+export default function HeroSection({ onScrollToUpload }: HeroSectionProps) {
   return (
-    <section className="relative min-h-screen flex items-center justify-center pt-20 overflow-hidden">
-      {/* Animated background elements */}
-      <div className="absolute inset-0 overflow-hidden">
-        <motion.div 
-          className="absolute top-1/4 left-1/4 w-[500px] h-[500px] rounded-full bg-gradient-to-br from-primary/20 to-accent/10 blur-3xl"
-          animate={{ 
-            scale: [1, 1.2, 1],
-            opacity: [0.3, 0.5, 0.3],
-          }}
-          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <motion.div 
-          className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-gradient-to-tr from-accent/15 to-primary/10 blur-3xl"
-          animate={{ 
-            scale: [1.2, 1, 1.2],
-            opacity: [0.4, 0.2, 0.4],
-          }}
-          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-        />
-        {/* Floating particles */}
-        {[...Array(6)].map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute w-2 h-2 rounded-full bg-primary/30"
-            style={{
-              left: `${20 + i * 15}%`,
-              top: `${30 + (i % 3) * 20}%`,
-            }}
-            animate={{
-              y: [0, -30, 0],
-              opacity: [0.3, 0.8, 0.3],
-            }}
-            transition={{
-              duration: 3 + i * 0.5,
-              repeat: Infinity,
-              delay: i * 0.3,
-            }}
-          />
-        ))}
-      </div>
+    <section className="relative overflow-hidden border-b border-border bg-hero-wash">
+      <div className="pointer-events-none absolute inset-0 bg-grid opacity-40 [mask-image:linear-gradient(to_bottom,black,transparent_85%)]" />
 
-      <div className="container mx-auto px-6 relative z-10">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
-          {/* Left content */}
-          <motion.div 
-            className="text-center lg:text-left"
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8 }}
-          >
-            <motion.div 
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-6 backdrop-blur-sm"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-            >
-              <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-sm text-primary font-medium">AI-Powered Analysis</span>
-            </motion.div>
-            
-            <motion.h1 
-              className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 leading-tight"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3, duration: 0.8 }}
-            >
-              <span className="text-foreground">Detect Screen</span>
-              <br />
-              <span className="gradient-text">Damage Instantly</span>
-            </motion.h1>
-            
-            <motion.p 
-              className="text-lg text-muted-foreground mb-8 max-w-xl mx-auto lg:mx-0"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-            >
-              Upload a photo of your smartphone screen and let our advanced AI analyze cracks, 
-              dead pixels, and damage severity in seconds.
-            </motion.p>
+      <div className="container relative mx-auto grid items-center gap-12 px-6 py-20 lg:grid-cols-[1.05fr_0.95fr] lg:py-28">
+        <div className="animate-fade-up">
+          <span className="chip-accent">AI screen-damage analysis</span>
 
-            <motion.div 
-              className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.6 }}
-            >
-              <Button 
-                size="lg" 
-                onClick={onScrollToUpload}
-                className="group bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-8 py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
-              >
-                <Upload className="w-5 h-5 mr-2" />
-                Start Analysis
-                <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-              </Button>
-              
-             
-            </motion.div>
+          <h1 className="mt-5 font-display text-4xl font-bold leading-[1.05] tracking-tight text-foreground sm:text-5xl lg:text-6xl text-balance">
+            Know what that cracked screen will actually cost.
+          </h1>
 
-            {/* Stats */}
-            <motion.div 
-              className="flex flex-wrap gap-8 mt-12 justify-center lg:justify-start"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.8 }}
+          <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted-foreground">
+            Upload one photo of a phone screen. Get an objective damage assessment, a severity
+            score, and a repair-cost estimate in rupees &mdash; in seconds.
+          </p>
+
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <button onClick={onScrollToUpload} className="btn-primary group">
+              Analyze a screen
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            </button>
+            <a
+              href="#how-it-works"
+              className="inline-flex items-center gap-2 rounded-[var(--radius)] border border-border px-5 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
             >
+              How it works
+            </a>
+          </div>
+
+          <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
+            {OUTPUTS.map((output) => (
+              <div key={output} className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                <span className="text-sm text-muted-foreground">{output}</span>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-6 text-xs text-muted-foreground">
+            Free to use &middot; Browse without an account &middot; Sign in to run an analysis
+          </p>
+        </div>
+
+        <div className="animate-fade-up [animation-delay:120ms]">
+          <figure className="surface shadow-soft overflow-hidden">
+            <div className="flex items-center gap-1.5 border-b border-border px-4 py-2.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30" />
+              <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30" />
+              <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30" />
+              <span className="ml-2 font-mono text-[11px] text-muted-foreground">
+                sample-analysis.jpg
+              </span>
+            </div>
+            <div className="bg-secondary/50 p-4">
+              <img
+                src={heroCrackedPhone}
+                alt="Cracked smartphone screen being analyzed"
+                className="mx-auto max-h-[420px] w-full rounded-[calc(var(--radius)-2px)] object-contain"
+              />
+            </div>
+            <figcaption className="grid grid-cols-3 divide-x divide-border border-t border-border">
               {[
-                { value: "80%>", label: "Accuracy" },
-                { value: "30s<", label: "Analysis Time" },
-                { value: "UnLimited", label: "Scans Done" },
-              ].map((stat, index) => (
-                <motion.div 
-                  key={index} 
-                  className="text-center"
-                  whileHover={{ scale: 1.05 }}
-                >
-                  <div className="text-2xl font-bold gradient-text">{stat.value}</div>
-                  <div className="text-sm text-muted-foreground">{stat.label}</div>
-                </motion.div>
+                ["Severity", "High"],
+                ["Score", "82/100"],
+                ["Est. cost", "₨ 24,000"],
+              ].map(([label, value]) => (
+                <div key={label} className="px-4 py-3">
+                  <div className="label-mono !text-[10px] !tracking-[0.16em]">{label}</div>
+                  <div className="mt-1 font-mono text-sm font-semibold text-foreground">{value}</div>
+                </div>
               ))}
-            </motion.div>
-          </motion.div>
-
-          {/* Right content - 3D Hero Image */}
-          <motion.div 
-            className="relative flex justify-center perspective-1000"
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8, delay: 0.4 }}
-          >
-            <motion.div 
-              className="relative"
-              animate={{ 
-                rotateY: [0, 5, 0, -5, 0],
-                rotateX: [0, 3, 0, -3, 0],
-              }}
-              transition={{ 
-                duration: 8, 
-                repeat: Infinity, 
-                ease: "easeInOut" 
-              }}
-              style={{ transformStyle: "preserve-3d" }}
-            >
-              {/* Glow effect */}
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-accent/20 blur-3xl rounded-full scale-75" />
-              
-              {/* 3D Card wrapper */}
-              <motion.div
-                className="relative bg-gradient-to-br from-card to-card/50 p-3 rounded-3xl shadow-2xl border border-border/50 backdrop-blur-sm"
-                whileHover={{ 
-                  scale: 1.02,
-                  rotateY: 5,
-                  rotateX: -5,
-                }}
-                transition={{ type: "spring", stiffness: 300 }}
-              >
-                <img 
-                  src={heroCrackedPhone} 
-                  alt="Cracked smartphone screen" 
-                  className="relative z-10 w-full max-w-lg rounded-2xl"
-                />
-                
-                {/* Scan line effect */}
-                <motion.div
-                  className="absolute inset-3 rounded-2xl overflow-hidden pointer-events-none"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
-                  <motion.div
-                    className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-primary/60 to-transparent"
-                    animate={{ top: ["0%", "100%", "0%"] }}
-                    transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                  />
-                </motion.div>
-
-                {/* Floating badge */}
-                <motion.div
-                  className="absolute -top-4 -right-4 bg-primary text-primary-foreground px-4 py-2 rounded-xl shadow-lg text-sm font-semibold"
-                  animate={{ y: [0, -5, 0] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                >
-                  AI Analyzing...
-                </motion.div>
-              </motion.div>
-            </motion.div>
-          </motion.div>
+            </figcaption>
+          </figure>
         </div>
       </div>
     </section>
   );
-};
-
-export default HeroSection;
+}

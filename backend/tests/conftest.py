@@ -92,13 +92,13 @@ def auth_token(client):
     resp = client.post("/api/auth/signup", json={
         "name":     "Test User",
         "email":    "testuser@screenai.test",
-        "password": "testpass123"
+        "password": "Testpass123!"
     })
     if resp.status_code == 409:
         # Already exists — login instead
         resp = client.post("/api/auth/login", json={
             "email":    "testuser@screenai.test",
-            "password": "testpass123"
+            "password": "Testpass123!"
         })
     assert resp.status_code == 200
     return resp.json()["token"]

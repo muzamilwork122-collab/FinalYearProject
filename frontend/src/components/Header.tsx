@@ -1,141 +1,164 @@
-import { Smartphone, Menu, X } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import { LayoutDashboard, LogOut, Menu, ScanLine, X } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import ThemeToggle from "@/components/ThemeToggle";
 
-const Header = () => {
-  const location = useLocation();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
-  const isActive = (path: string) => location.pathname === path;
+const NAV = [
+  { label: "Home", to: "/" },
+  { label: "Features", to: "/features" },
+  { label: "Pricing", to: "/pricing" },
+];
 
-  const navLinks = [
-    { path: "/", label: "Home" },
-    { path: "/features", label: "Features" },
-    { path: "/pricing", label: "Pricing" },
-    { path: "/dashboard", label: "Dashboard" },
-  ];
-  
+export default function Header() {
+  const { isAuthenticated, user, logout, openLogin, requireAuth } = useAuth();
+  const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const goDashboard = () => {
+    setMenuOpen(false);
+    requireAuth(() => navigate("/dashboard"));
+  };
+
+  const initials = (user?.name?.toString().trim()?.[0] || "U").toUpperCase();
+
   return (
-    <motion.header 
-      className="fixed top-0 left-0 right-0 z-50 glass-card border-b border-border/30"
-      initial={{ y: -100 }}
-      animate={{ y: 0 }}
-      transition={{ duration: 0.5, ease: "easeOut" }}
-    >
-      <div className="container mx-auto px-6 py-4">
-        <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3 group">
-            <motion.div 
-              className="relative"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+    <header className="sticky top-0 z-40 border-b border-border bg-background/85 shadow-sm backdrop-blur-md">
+      <div className="container mx-auto flex h-16 items-center justify-between px-6">
+        <Link to="/" className="flex items-center gap-2" onClick={() => setMenuOpen(false)}>
+          <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius)] bg-accent text-accent-foreground">
+            <ScanLine className="h-4 w-4" />
+          </span>
+          <span className="font-display text-base font-semibold tracking-tight">ScreenScan</span>
+        </Link>
+
+        <nav className="hidden items-center gap-1 md:flex">
+          {NAV.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === "/"}
+              className={({ isActive }) =>
+                `rounded-[var(--radius)] px-3 py-2 text-sm font-medium transition-colors ${
+                  isActive ? "bg-accent-soft text-accent-strong" : "text-muted-foreground hover:text-foreground"
+                }`
+              }
             >
-              <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center animate-pulse-glow group-hover:bg-primary/30 transition-colors">
-                <Smartphone className="w-5 h-5 text-primary" />
-              </div>
-            </motion.div>
-            <div>
-              <h1 className="text-lg font-bold gradient-text">ScreenScan AI</h1>
-              <p className="text-xs text-muted-foreground">Damage Detection System</p>
-            </div>
-          </Link>
-          
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-1">
-            {navLinks.map((link) => (
-              <Link 
-                key={link.path}
-                to={link.path} 
-                className="relative px-4 py-2"
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="hidden items-center gap-2 md:flex">
+          <ThemeToggle />
+          {isAuthenticated ? (
+            <>
+              <button
+                onClick={goDashboard}
+                className="flex items-center gap-2 rounded-[var(--radius)] px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
-                <motion.span
-                  className={`text-sm transition-colors relative z-10 ${
-                    isActive(link.path) 
-                      ? 'text-primary font-medium' 
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                  whileHover={{ scale: 1.05 }}
-                >
-                  {link.label}
-                </motion.span>
-                {isActive(link.path) && (
-                  <motion.div
-                    layoutId="activeNav"
-                    className="absolute inset-0 bg-primary/10 rounded-lg"
-                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                  />
-                )}
+                <LayoutDashboard className="h-4 w-4" />
+                Dashboard
+              </button>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-foreground">
+                {initials}
+              </span>
+              <button
+                onClick={logout}
+                aria-label="Sign out"
+                className="flex h-9 w-9 items-center justify-center rounded-[var(--radius)] border border-border text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={openLogin}
+                className="rounded-[var(--radius)] px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+              >
+                Sign in
+              </button>
+              <Link
+                to="/#analyze"
+                className="rounded-[var(--radius)] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                Analyze a screen
               </Link>
-            ))}
-          </nav>
-
-          <div className="flex items-center gap-4">
-            <motion.div 
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/20"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.5 }}
-            >
-              <motion.div 
-                className="w-2 h-2 rounded-full bg-success"
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-              />
-              <span className="text-xs text-success font-medium">AI Online</span>
-            </motion.div>
-
-            {/* Mobile menu button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="md:hidden"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </Button>
-          </div>
+            </>
+          )}
         </div>
 
-        {/* Mobile Navigation */}
-        <AnimatePresence>
-          {mobileMenuOpen && (
-            <motion.nav
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.3 }}
-              className="md:hidden mt-4 pb-4 border-t border-border/30 pt-4"
-            >
-              <div className="flex flex-col gap-2">
-                {navLinks.map((link, index) => (
-                  <motion.div
-                    key={link.path}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                  >
-                    <Link 
-                      to={link.path}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={`block px-4 py-3 rounded-lg transition-colors ${
-                        isActive(link.path) 
-                          ? 'bg-primary/10 text-primary font-medium' 
-                          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                      }`}
-                    >
-                      {link.label}
-                    </Link>
-                  </motion.div>
-                ))}
-              </div>
-            </motion.nav>
-          )}
-        </AnimatePresence>
+        <button
+          className="flex h-9 w-9 items-center justify-center rounded-[var(--radius)] border border-border text-foreground md:hidden"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-label="Toggle menu"
+        >
+          {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
       </div>
-    </motion.header>
-  );
-};
 
-export default Header;
+      {menuOpen && (
+        <div className="border-t border-border bg-background md:hidden">
+          <nav className="container mx-auto flex flex-col gap-1 px-6 py-4">
+            {NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/"}
+                onClick={() => setMenuOpen(false)}
+                className={({ isActive }) =>
+                  `rounded-[var(--radius)] px-3 py-2.5 text-sm font-medium ${
+                    isActive ? "bg-accent-soft text-accent-strong" : "text-muted-foreground"
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+            <div className="mt-2 flex flex-col gap-2 border-t border-border pt-3">
+              {isAuthenticated ? (
+                <>
+                  <button
+                    onClick={goDashboard}
+                    className="rounded-[var(--radius)] border border-border px-3 py-2.5 text-left text-sm font-medium text-foreground"
+                  >
+                    Dashboard
+                  </button>
+                  <button
+                    onClick={() => {
+                      logout();
+                      setMenuOpen(false);
+                    }}
+                    className="rounded-[var(--radius)] px-3 py-2.5 text-left text-sm font-medium text-muted-foreground"
+                  >
+                    Sign out
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      openLogin();
+                      setMenuOpen(false);
+                    }}
+                    className="rounded-[var(--radius)] border border-border px-3 py-2.5 text-left text-sm font-medium text-foreground"
+                  >
+                    Sign in
+                  </button>
+                  <Link
+                    to="/#analyze"
+                    onClick={() => setMenuOpen(false)}
+                    className="rounded-[var(--radius)] bg-primary px-3 py-2.5 text-center text-sm font-semibold text-primary-foreground"
+                  >
+                    Analyze a screen
+                  </Link>
+                </>
+              )}
+            </div>
+          </nav>
+        </div>
+      )}
+    </header>
+  );
+}

@@ -1,16 +1,29 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <!-- TODO: Set the document title to the name of your application -->
-    <title>Screen AI</title>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    
-    
 
-   
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScreenScan — AI Phone Screen Damage Analysis</title>
+  <meta name="description"
+    content="Upload a photo of a cracked phone screen and get an instant AI damage assessment, severity score, and repair-cost estimate in PKR." />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>
+    // Apply the saved theme before first paint to avoid a flash of the wrong theme.
+    // Light is the default; dark only applies when the user has explicitly chosen it.
+    (function () {
+      try {
+        var theme = localStorage.getItem("theme") === "dark" ? "dark" : "light";
+        if (theme === "dark") document.documentElement.classList.add("dark");
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) {}
+    })();
+  </script>
+</head>
 
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

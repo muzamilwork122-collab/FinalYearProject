@@ -1,0 +1,10 @@
+# Machine-learning / model-training dependencies.
+# Only needed to run the ml_training notebooks or the local-model code in app/models.
+# The deployed server runs in OpenAI-only mode and does NOT need these.
+# Install with:  pip install -r requirements.txt -r requirements-ml.txt
+torch==2.2.0
+torchvision==0.17.0
+scikit-learn==1.6.1
+lightgbm==4.3.0
+segmentation-models-pytorch==0.3.3
+six
