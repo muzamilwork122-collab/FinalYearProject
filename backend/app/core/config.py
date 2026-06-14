@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     FRONTEND_URL:      str = "http://localhost:5173"
     GOOGLE_CLIENT_ID:  str = ""
 
+    # Signs stateless auth tokens so sessions survive server restarts.
+    # Override in production via the SECRET_KEY env var.
+    SECRET_KEY:        str = "dev-secret-change-me-in-production"
+
     class Config:
         env_file          = ".env"
         env_file_encoding = "utf-8"

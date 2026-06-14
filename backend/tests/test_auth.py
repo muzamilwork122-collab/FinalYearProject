@@ -13,7 +13,7 @@ def unique_email():
     return f"test_{uuid.uuid4().hex[:8]}@gmail.com"
 
 
-def create_user(client, email=None, password="pass123456"):
+def create_user(client, email=None, password="Pass123456!"):
     """Helper to create a user and return email + token."""
     email = email or unique_email()
     resp  = client.post("/api/auth/signup", json={
@@ -30,7 +30,7 @@ class TestSignup:
 
     def test_signup_success(self, client):
         resp = client.post("/api/auth/signup", json={
-            "name": "Test User", "email": unique_email(), "password": "password123"
+            "name": "Test User", "email": unique_email(), "password": "Password123!"
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -40,7 +40,7 @@ class TestSignup:
 
     def test_signup_returns_uuid(self, client):
         resp = client.post("/api/auth/signup", json={
-            "name": "UUID Test", "email": unique_email(), "password": "password123"
+            "name": "UUID Test", "email": unique_email(), "password": "Password123!"
         })
         assert resp.status_code == 200
         uuid.UUID(resp.json()["user"]["id"])   # raises if not valid UUID
@@ -48,10 +48,10 @@ class TestSignup:
     def test_duplicate_email_rejected(self, client):
         email = unique_email()
         client.post("/api/auth/signup", json={
-            "name": "First", "email": email, "password": "pass123"
+            "name": "First", "email": email, "password": "Password123!"
         })
         resp = client.post("/api/auth/signup", json={
-            "name": "Second", "email": email, "password": "pass456"
+            "name": "Second", "email": email, "password": "Password456!"
         })
         assert resp.status_code == 409
 
@@ -61,9 +61,23 @@ class TestSignup:
         })
         assert resp.status_code == 400
 
+    def test_weak_password_missing_uppercase_rejected(self, client):
+        resp = client.post("/api/auth/signup", json={
+            "name": "Weak", "email": unique_email(), "password": "password123!"
+        })
+        assert resp.status_code == 400
+        assert "uppercase" in resp.json()["detail"].lower()
+
+    def test_weak_password_missing_special_rejected(self, client):
+        resp = client.post("/api/auth/signup", json={
+            "name": "Weak", "email": unique_email(), "password": "Password123"
+        })
+        assert resp.status_code == 400
+        assert "special" in resp.json()["detail"].lower()
+
     def test_missing_name_rejected(self, client):
         resp = client.post("/api/auth/signup", json={
-            "name": "", "email": unique_email(), "password": "password123"
+            "name": "", "email": unique_email(), "password": "Password123!"
         })
         assert resp.status_code == 400
 
@@ -75,24 +89,38 @@ class TestSignup:
 
     def test_signup_numeric_name_rejected(self, client):
         resp = client.post("/api/auth/signup", json={
-            "name": "Test123", "email": unique_email(), "password": "password123"
+            "name": "Test123", "email": unique_email(), "password": "Password123!"
         })
         assert resp.status_code == 400
         assert "numeric" in resp.json()["detail"].lower()
 
+    def test_signup_symbol_name_rejected(self, client):
+        resp = client.post("/api/auth/signup", json={
+            "name": "Test@User", "email": unique_email(), "password": "Password123!"
+        })
+        assert resp.status_code == 400
+
     def test_signup_invalid_email_rejected(self, client):
         resp = client.post("/api/auth/signup", json={
-            "name": "Test User", "email": "invalid_email_format", "password": "password123"
+            "name": "Test User", "email": "invalid_email_format", "password": "Password123!"
         })
         assert resp.status_code == 400
         assert "email" in resp.json()["detail"].lower()
 
-    def test_signup_non_gmail_rejected(self, client):
+    def test_signup_fake_email_domain_rejected(self, client):
         resp = client.post("/api/auth/signup", json={
-            "name": "Test User", "email": "test@outlook.com", "password": "password123"
+            "name": "Test User", "email": "taha@nomail.com", "password": "Password123!"
         })
         assert resp.status_code == 400
-        assert "gmail" in resp.json()["detail"].lower()
+        assert "nomail.com" in resp.json()["detail"].lower()
+
+    def test_signup_non_gmail_allowed(self, client):
+        # Real providers other than Gmail are now accepted.
+        resp = client.post("/api/auth/signup", json={
+            "name": "Test User", "email": unique_email().replace("@gmail.com", "@outlook.com"),
+            "password": "Password123!"
+        })
+        assert resp.status_code == 200
 
 
 # ══════════════════════════════════════════
@@ -104,7 +132,7 @@ class TestLogin:
     def test_login_success(self, client):
         # Create user first then login with SAME credentials
         email    = unique_email()
-        password = "mypassword123"
+        password = "Mypassword123!"
         signup   = client.post("/api/auth/signup", json={
             "name": "Login User", "email": email, "password": password
         })
@@ -120,23 +148,23 @@ class TestLogin:
     def test_wrong_password_rejected(self, client):
         email = unique_email()
         client.post("/api/auth/signup", json={
-            "name": "WrongPass", "email": email, "password": "correct123"
+            "name": "WrongPass", "email": email, "password": "Correct123!"
         })
         resp = client.post("/api/auth/login", json={
-            "email": email, "password": "wrongpassword"
+            "email": email, "password": "Wrongpassword1!"
         })
         assert resp.status_code == 401
 
     def test_nonexistent_user_rejected(self, client):
         resp = client.post("/api/auth/login", json={
-            "email":    f"nobody_{uuid.uuid4().hex}@nowhere.com",
-            "password": "password123"
+            "email":    f"nobody_{uuid.uuid4().hex}@example-real.com",
+            "password": "Password123!"
         })
         assert resp.status_code == 401
 
     def test_login_token_is_string(self, client):
         email    = unique_email()
-        password = "pass123456"
+        password = "Pass123456!"
         client.post("/api/auth/signup", json={
             "name": "Token", "email": email, "password": password
         })
@@ -150,7 +178,7 @@ class TestLogin:
 
     def test_each_login_gives_different_token(self, client):
         email    = unique_email()
-        password = "pass123456"
+        password = "Pass123456!"
         client.post("/api/auth/signup", json={
             "name": "Tokens", "email": email, "password": password
         })
@@ -174,7 +202,7 @@ class TestGetMe:
     def test_get_me_with_valid_token(self, client):
         email  = unique_email()
         signup = client.post("/api/auth/signup", json={
-            "name": "Me User", "email": email, "password": "pass123456"
+            "name": "Me User", "email": email, "password": "Pass123456!"
         })
         assert signup.status_code == 200
         token = signup.json()["token"]
@@ -201,22 +229,22 @@ class TestForgotPassword:
     def test_forgot_password_success(self, client):
         email = unique_email()
         client.post("/api/auth/signup", json={
-            "name": "Reset User", "email": email, "password": "oldpassword123"
+            "name": "Reset User", "email": email, "password": "Oldpassword123!"
         })
         resp = client.post("/api/auth/forgot-password", json={
-            "email": email, "new_password": "newpassword123"
+            "email": email, "new_password": "Newpassword123!"
         })
         assert resp.status_code == 200
         
         # Verify login works with new password
         login_resp = client.post("/api/auth/login", json={
-            "email": email, "password": "newpassword123"
+            "email": email, "password": "Newpassword123!"
         })
         assert login_resp.status_code == 200
 
     def test_forgot_password_nonexistent_email(self, client):
         resp = client.post("/api/auth/forgot-password", json={
-            "email": "notfound@gmail.com", "new_password": "newpassword123"
+            "email": "notfound@gmail.com", "new_password": "Newpassword123!"
         })
         assert resp.status_code == 404
         assert "not found" in resp.json()["detail"].lower()
@@ -240,7 +268,7 @@ class TestGoogleAuth:
             status_code = 200
             def json(self):
                 return {
-                    "email": "googleuser@screenai.test",
+                    "email": "googleuser@gmail.com",
                     "name": "Google User",
                     "aud": "dummy_client_id"
                 }
@@ -259,14 +287,14 @@ class TestGoogleAuth:
         assert resp.status_code == 200
         data = resp.json()
         assert "token" in data
-        assert data["user"]["email"] == "googleuser@screenai.test"
+        assert data["user"]["email"] == "googleuser@gmail.com"
         assert data["user"]["name"] == "Google User"
 
     def test_google_auth_existing_user_success(self, client, monkeypatch):
-        email = "googleuser_existing@screenai.test"
+        email = "googleuser_existing@gmail.com"
         # First create user
         client.post("/api/auth/signup", json={
-            "name": "Original Name", "email": email, "password": "password123"
+            "name": "Original Name", "email": email, "password": "Password123!"
         })
 
         class MockResponse:

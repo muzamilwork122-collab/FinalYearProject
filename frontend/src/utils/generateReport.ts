@@ -287,14 +287,14 @@ export async function generateDamageReport(data: ReportData): Promise<void> {
   doc.setTextColor(...GRAY);
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
-  doc.text("Estimated Repair Cost (USD)", margin + 5, y + 7);
-  doc.text("Estimated Repair Cost (PKR approx.)", W / 2 + 5, y + 7);
+  doc.text("Estimated Repair Cost (PKR)", margin + 5, y + 7);
+  doc.text("Damage Score", W / 2 + 5, y + 7);
 
   doc.setTextColor(...PRIMARY);
   doc.setFontSize(16);
   doc.setFont("helvetica", "bold");
-  doc.text(`$${data.repair_cost_usd.toFixed(0)}`, margin + 5, y + 17);
-  doc.text(`PKR ${(data.repair_cost_usd * 278).toLocaleString("en-PK")}`, W / 2 + 5, y + 17);
+  doc.text(`PKR ${Math.round(data.repair_cost_usd).toLocaleString("en-PK")}`, margin + 5, y + 17);
+  doc.text(`${data.damage_score.toFixed(0)} / 100`, W / 2 + 5, y + 17);
 
   // Divider between two costs
   doc.setDrawColor(...GRAY);
