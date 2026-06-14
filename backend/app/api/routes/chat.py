@@ -28,6 +28,7 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     token: Optional[str] = None   # user token for saving history
     context: Optional[str] = None  # optional summary of the user's own analyses
+    ephemeral: Optional[bool] = False  # True for per-analysis chats: don't merge or save global history
 
 
 class ChatHistoryResponse(BaseModel):
@@ -145,8 +146,12 @@ async def chat(request: Request, request_body: ChatRequest, db: Session = Depend
         except Exception:
             pass
 
-    # If logged in, merge DB history with current messages for full context
-    if user_id:
+    # Per-analysis (ephemeral) chats are grounded only on the messages the
+    # frontend sends + the analysis context. Merging the global DB history here
+    # would leak a previous analysis session (e.g. a different phone model) into
+    # the conversation, so we skip it. The persistent dashboard chat still merges
+    # and saves history for continuity.
+    if user_id and not request_body.ephemeral:
         db_history = load_history_from_db(db, user_id, limit=50)
         # Use DB history as base — more reliable than frontend state
         all_messages = db_history + [request_body.messages[-1]]  # add only the latest user message
@@ -155,8 +160,8 @@ async def chat(request: Request, request_body: ChatRequest, db: Session = Depend
 
     reply = await llm_response(all_messages, context=request_body.context)
 
-    # Save to DB if user is logged in
-    if user_id:
+    # Save to DB only for the persistent chat (not per-analysis sessions)
+    if user_id and not request_body.ephemeral:
         last_user_msg = next((m.content for m in reversed(request_body.messages) if m.role == "user"), "")
         save_messages_to_db(db, user_id, last_user_msg, reply)
 
