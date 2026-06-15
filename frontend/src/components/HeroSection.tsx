@@ -22,7 +22,7 @@ export default function HeroSection({ onScrollToUpload }: HeroSectionProps) {
 
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted-foreground">
             Upload one photo of a phone screen. Get an objective damage assessment, a severity
-            score, and a repair-cost estimate in rupees &mdash; in seconds.
+            score and a repair-cost estimate in rupees in seconds.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
