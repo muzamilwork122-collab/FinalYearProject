@@ -19,11 +19,11 @@ export default function PricingSection() {
         <div className="mx-auto max-w-2xl text-center">
           <span className="chip-accent">Pricing</span>
           <h1 className="mt-4 font-display text-4xl font-bold tracking-tight text-foreground sm:text-5xl text-balance">
-            Free, and that's the whole plan.
+            Free and that's the whole plan.
           </h1>
           <p className="mt-4 text-muted-foreground">
-            This is a final-year project, not a business. Everything it can do is available to
-            everyone at no cost — you only need a free account to run an analysis.
+            This is Start of a business. Everything it can do is available to
+            everyone at no cost you only need a free account to run an analysis.
           </p>
         </div>
 
