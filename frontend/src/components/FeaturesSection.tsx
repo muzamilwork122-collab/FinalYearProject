@@ -9,7 +9,7 @@ const FEATURES = [
   {
     icon: Grid3x3,
     title: "Display-fault checks",
-    description: "Flags dead pixels, black spots and other panel abnormalities.",
+    description: "Flags black spots and other panel abnormalities.",
   },
   {
     icon: Gauge,
