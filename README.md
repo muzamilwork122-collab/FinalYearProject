@@ -120,6 +120,9 @@ Open the URL Vite prints (default <http://localhost:5173>).
 | `OPENAI_API_KEY` | ✅ | — | OpenAI key used for analysis + chat |
 | `OPENAI_ONLY_MODE` | — | `true` | Skip local ML models (keep `true`) |
 | `GOOGLE_CLIENT_ID` | — | — | Google OAuth client ID (blank disables Google Sign-In) |
+| `SECRET_KEY` | — | `dev-secret-change-me-in-production` | Signs stateless auth tokens |
+| `ADMIN_EMAIL` | — | `admin@dashboard.com` | Seeds the admin account on first run (visit `/admin`) |
+| `ADMIN_PASSWORD` | — | `Admin@123!` | Seeds the admin password on first run |
 | `APP_NAME` | — | `mobile-damage-ai` | App name |
 | `DEBUG` | — | `false` | Verbose logging |
 | `CONFIDENCE_THRESHOLD` | — | `0.5` | Detection confidence floor |
@@ -201,6 +204,19 @@ All routes are prefixed with `/api`. Full, always-current docs at `/docs` (Swagg
 | `POST` | `/api/auth/signup` · `/api/auth/login` · `/api/auth/google` | Authentication |
 | `PATCH` | `/api/auth/profile` | Update name |
 | `POST` | `/api/auth/change-password` · `/api/auth/delete-account` | Account management |
+| `POST` | `/api/shopkeepers/register` · `/api/shopkeepers/login` | Shop partner sign-up / sign-in |
+| `GET` | `/api/shopkeepers/me` | Shop application status |
+| `GET` | `/api/shops/nearby` | Approved partner shops near a location (priority on the map) |
+| `POST` | `/api/admin/login` | Admin sign-in |
+| `GET` · `PATCH` | `/api/admin/profile` | View / edit admin profile (name, email) |
+| `POST` | `/api/admin/change-password` | Change the admin password |
+| `GET` | `/api/admin/stats` · `/api/admin/users` · `/api/admin/users/{id}` · `/api/admin/shopkeepers` | Admin dashboard / users / shops data |
+| `POST` | `/api/admin/shopkeepers/{id}/approve` · `/reject` · `/active` | Review applications, suspend / reactivate shops |
+| `POST` | `/api/admin/users/{id}/active` | Suspend / reactivate a user account |
+| `POST` | `/api/chat/threads/start` | Customer opens a chat with an approved shop |
+| `GET` | `/api/chat/threads` | List the caller's conversations (user or shop token) |
+| `GET` · `POST` | `/api/chat/threads/{id}/messages` | Fetch / send messages in a thread |
+| `GET` | `/api/chat/unread` | Total unread count (powers the notification badge) |
 | `GET` | `/health` | Health check |
 
 ---

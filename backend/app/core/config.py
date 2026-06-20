@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     # Override in production via the SECRET_KEY env var.
     SECRET_KEY:        str = "dev-secret-change-me-in-production"
 
+    # Default admin panel credentials (override via env in production).
+    ADMIN_EMAIL:       str = "admin@dashboard.com"
+    ADMIN_PASSWORD:    str = "Admin@123!"
+
     class Config:
         env_file          = ".env"
         env_file_encoding = "utf-8"
