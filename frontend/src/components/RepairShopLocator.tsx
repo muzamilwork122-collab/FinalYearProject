@@ -4,9 +4,11 @@
 import { useState, useEffect, useRef } from "react";
 import {
   MapPin, Navigation, Loader2, ExternalLink,
-  Phone, Clock, RefreshCw, Sparkles, AlertTriangle, ShieldCheck,
+  Phone, Clock, RefreshCw, Sparkles, AlertTriangle, ShieldCheck, MessageCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
@@ -22,14 +24,57 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
 }
 
 interface Shop {
-  id:          number;
+  id:           string | number;
+  name:         string;
+  address:      string;
+  phone:        string;
+  lat:          number;
+  lng:          number;
+  distance_km:  number;
+  opening:      string;
+  verified?:    boolean;
+  /** Shopkeeper UUID — present on verified partners; enables live chat. */
+  shopkeeperId?: string;
+}
+
+interface VerifiedShop {
+  id:          string;
   name:        string;
   address:     string;
   phone:       string;
-  lat:         number;
-  lng:         number;
-  distance_km: number;
   opening:     string;
+  lat:         number | null;
+  lng:         number | null;
+  distance_km: number | null;
+}
+
+/** Fetch approved partner shops from our backend (shown ahead of OSM results). */
+async function fetchVerifiedShops(lat: number, lng: number): Promise<Shop[]> {
+  try {
+    const resp = await fetchWithTimeout(
+      `${API_BASE}/api/shops/nearby?lat=${lat}&lng=${lng}`,
+      {},
+      8000,
+    );
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return (data?.shops ?? [])
+      .filter((shop: VerifiedShop) => shop.lat != null && shop.lng != null)
+      .map((shop: VerifiedShop) => ({
+        id:           `verified-${shop.id}`,
+        name:         shop.name,
+        address:      shop.address ?? "",
+        phone:        shop.phone ?? "",
+        lat:          shop.lat as number,
+        lng:          shop.lng as number,
+        distance_km:  shop.distance_km ?? 0,
+        opening:      shop.opening ?? "",
+        verified:     true,
+        shopkeeperId: shop.id,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 interface UserLocation {
@@ -46,6 +91,8 @@ interface AIInsights {
 }
 
 const RepairShopLocator = () => {
+  const { requireAuth } = useAuth();
+  const navigate = useNavigate();
   const [location, setLocation]         = useState<UserLocation | null>(null);
   const [shops, setShops]               = useState<Shop[]>([]);
   const [loading, setLoading]           = useState(false);
@@ -236,17 +283,25 @@ const RepairShopLocator = () => {
         elements = await tryFetch(buildQuery(10000));
       }
 
+      // Our approved partner shops always take priority over OSM results.
+      const verifiedShops = (await fetchVerifiedShops(lat, lng)).sort(
+        (a: Shop, b: Shop) => a.distance_km - b.distance_km,
+      );
+
       if (elements === null) {
+        setShops(verifiedShops);
         setLoading(false);
         setStatusText("");
-        setError(`Map service temporarily unavailable. Try searching on Google Maps: "mobile phone repair near me"`);
-        initMap(lat, lng, []);
+        if (verifiedShops.length === 0) {
+          setError(`Map service temporarily unavailable. Try searching on Google Maps: "mobile phone repair near me"`);
+        }
+        initMap(lat, lng, verifiedShops);
         // Still fetch insights even if no map shops found
-        loadInsights(loc.city, loc.country, []);
+        loadInsights(loc.city, loc.country, verifiedShops);
         return;
       }
 
-      const shopList: Shop[] = elements
+      const osmShops: Shop[] = elements
         .filter((el: any) => isPhoneShop(el.tags ?? {}))
         .map((el: any) => {
         const tags  = el.tags ?? {};
@@ -268,8 +323,10 @@ const RepairShopLocator = () => {
           opening:     tags.opening_hours || "",
         };
       })
-        .sort((a: Shop, b: Shop) => a.distance_km - b.distance_km)
-        .slice(0, 10);
+        .sort((a: Shop, b: Shop) => a.distance_km - b.distance_km);
+
+      // Verified partners first, then OSM shops, capped for a tidy list.
+      const shopList: Shop[] = [...verifiedShops, ...osmShops].slice(0, 12);
 
       setShops(shopList);
       setLoading(false);
@@ -336,16 +393,20 @@ const RepairShopLocator = () => {
       L.marker([lat, lng], { icon: userIcon }).addTo(map).bindPopup(`<b>You are here</b>`).openPopup();
 
       shopList.forEach((shop, i) => {
+        // CSS custom properties cascade to Leaflet's injected markers, so the
+        // brand tokens resolve here too. Verified partners get the deeper accent.
+        const markerColor = shop.verified ? "hsl(var(--accent-strong))" : "hsl(var(--accent))";
         const icon = L.divIcon({
-          html: `<div style="background:#2563eb;color:#ffffff;font-weight:700;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.25)">${i + 1}</div>`,
+          html: `<div style="background:${markerColor};color:#ffffff;font-weight:700;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.25)">${shop.verified ? "★" : i + 1}</div>`,
           className: "", iconSize: [28, 28], iconAnchor: [14, 14],
         });
         const m = L.marker([shop.lat, shop.lng], { icon }).addTo(map).bindPopup(`
           <div style="min-width:150px;font-family:sans-serif">
+            ${shop.verified ? `<span style="display:inline-block;margin-bottom:4px;background:hsl(var(--accent-soft));color:hsl(var(--accent-strong));font-size:10px;font-weight:700;padding:1px 6px;border-radius:9999px">★ Verified partner</span><br/>` : ""}
             <b style="font-size:13px">${shop.name}</b>
             ${shop.address ? `<br/><span style="color:#6b7280;font-size:11px">${shop.address}</span>` : ""}
             ${shop.phone   ? `<br/><span style="font-size:11px">${shop.phone}</span>` : ""}
-            <br/><b style="font-size:11px;color:#2563eb">${shop.distance_km < 1 ? `${(shop.distance_km * 1000).toFixed(0)}m` : `${shop.distance_km.toFixed(1)}km`} away</b>
+            <br/><b style="font-size:11px;color:${markerColor}">${shop.distance_km < 1 ? `${(shop.distance_km * 1000).toFixed(0)}m` : `${shop.distance_km.toFixed(1)}km`} away</b>
           </div>
         `);
         markersRef.current.push(m);
@@ -575,17 +636,30 @@ const RepairShopLocator = () => {
                         focusShop(shop, i);
                       }}
                       className={`cursor-pointer rounded-[var(--radius)] border p-4 transition-colors ${
-                        selectedShop?.id === shop.id
-                          ? "border-accent bg-secondary/60"
-                          : "border-border bg-card hover:bg-secondary/40"
+                        shop.verified
+                          ? "border-[hsl(var(--accent)/0.5)] bg-[hsl(var(--accent)/0.06)] hover:bg-[hsl(var(--accent)/0.1)]"
+                          : selectedShop?.id === shop.id
+                            ? "border-accent bg-secondary/60"
+                            : "border-border bg-card hover:bg-secondary/40"
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-foreground">
-                          {i + 1}
+                        <span
+                          className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                            shop.verified ? "bg-[hsl(var(--accent-strong))] text-accent-foreground" : "bg-accent text-accent-foreground"
+                          }`}
+                        >
+                          {shop.verified ? "★" : i + 1}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <h4 className="mb-1 truncate text-sm font-semibold text-foreground">{shop.name}</h4>
+                          <div className="mb-1 flex items-center gap-2">
+                            <h4 className="truncate text-sm font-semibold text-foreground">{shop.name}</h4>
+                            {shop.verified && (
+                              <span className="flex-shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent-strong">
+                                Verified partner
+                              </span>
+                            )}
+                          </div>
                           {shop.address && (
                             <p className="mb-1.5 flex items-center gap-1 text-xs text-muted-foreground">
                               <MapPin className="h-3 w-3 flex-shrink-0" />
@@ -645,18 +719,30 @@ const RepairShopLocator = () => {
                             >
                               <Navigation className="h-3 w-3" /> Directions
                             </button>
-                            <button
-                              className="flex flex-1 items-center justify-center gap-1 rounded-[var(--radius)] bg-primary py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                window.open(
-                                  `https://www.openstreetmap.org/?mlat=${shop.lat}&mlon=${shop.lng}#map=18/${shop.lat}/${shop.lng}`,
-                                  "_blank",
-                                );
-                              }}
-                            >
-                              <ExternalLink className="h-3 w-3" /> View on map
-                            </button>
+                            {shop.verified && shop.shopkeeperId ? (
+                              <button
+                                className="flex flex-1 items-center justify-center gap-1 rounded-[var(--radius)] bg-primary py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  requireAuth(() => navigate(`/messages?shop=${shop.shopkeeperId}`));
+                                }}
+                              >
+                                <MessageCircle className="h-3 w-3" /> Message
+                              </button>
+                            ) : (
+                              <button
+                                className="flex flex-1 items-center justify-center gap-1 rounded-[var(--radius)] bg-primary py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(
+                                    `https://www.openstreetmap.org/?mlat=${shop.lat}&mlon=${shop.lng}#map=18/${shop.lat}/${shop.lng}`,
+                                    "_blank",
+                                  );
+                                }}
+                              >
+                                <ExternalLink className="h-3 w-3" /> View on map
+                              </button>
+                            )}
                           </motion.div>
                         )}
                       </AnimatePresence>

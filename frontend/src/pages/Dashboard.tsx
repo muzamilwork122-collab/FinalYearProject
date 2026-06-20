@@ -9,13 +9,14 @@ import {
   Smartphone, History, TrendingUp, AlertTriangle, CheckCircle2, ShieldX,
   ShieldAlert, Download, Calendar, Search, Filter, ChevronDown, LogOut,
   ArrowLeft, RefreshCw, FileText, Banknote, Activity, ScanLine, X, Sparkles,
-  Trash2, Settings,
+  Trash2, Settings, MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { generateDamageReport } from "@/utils/generateReport";
 import { useAuth } from "@/context/AuthContext";
 import { usePreferences } from "@/context/PreferencesContext";
 import ThemeToggle from "@/components/ThemeToggle";
+import NotificationBell from "@/components/chat/NotificationBell";
 import UploadSection from "@/components/UploadSection";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -260,6 +261,11 @@ const Dashboard = () => {
           </div>
 
           <div className="flex items-center gap-3">
+            <NotificationBell token={token} role="user" />
+            <Link to="/messages" className={btnOutline}>
+              <MessageSquare className="h-4 w-4 text-accent" />
+              <span className="hidden sm:inline">Messages</span>
+            </Link>
             <Link to="/assistant" className={btnOutline}>
               <Sparkles className="h-4 w-4 text-accent" />
               <span className="hidden sm:inline">Assistant</span>

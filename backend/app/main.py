@@ -11,6 +11,9 @@ from app.core.logging import setup_logging
 from app.api.routes.predict import router as predict_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.shopkeeper import router as shopkeeper_router
+from app.api.routes.admin import router as admin_router
+from app.api.routes.chat_threads import router as chat_threads_router
 from app.db.database import create_tables
 from app.db import models  # noqa: F401
 
@@ -30,8 +33,21 @@ limiter = Limiter(key_func=get_remote_address, enabled=False)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_tables()
+    _seed_admin_account()
     print("Running in OpenAI-only mode — local models skipped")
     yield
+
+
+def _seed_admin_account():
+    """Ensure the single admin row exists (idempotent)."""
+    from app.api.routes.admin import ensure_admin_account
+    from app.db.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        ensure_admin_account(db)
+    finally:
+        db.close()
 
 
 app = FastAPI(
@@ -56,9 +72,12 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-app.include_router(predict_router, prefix="/api")
-app.include_router(chat_router,   prefix="/api")
-app.include_router(auth_router,   prefix="/api")
+app.include_router(predict_router,    prefix="/api")
+app.include_router(chat_router,       prefix="/api")
+app.include_router(auth_router,       prefix="/api")
+app.include_router(shopkeeper_router, prefix="/api")
+app.include_router(admin_router,      prefix="/api")
+app.include_router(chat_threads_router, prefix="/api")
 
 
 @app.get("/health")

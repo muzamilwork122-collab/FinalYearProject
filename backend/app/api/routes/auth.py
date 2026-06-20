@@ -204,6 +204,8 @@ def login(request: Request, request_body: LoginRequest, db: Session = Depends(ge
     user = db.query(User).filter(User.email == request_body.email.lower()).first()
     if not user or not verify_password(request_body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact support.")
     token = generate_token(str(user.id))
     logger.info(f"User logged in: {user.email}")
     return AuthResponse(token=token, user=UserOut(id=str(user.id), name=user.name, email=user.email))
@@ -308,6 +310,8 @@ async def google_auth(request_body: GoogleAuthRequest, db: Session = Depends(get
         db.refresh(user)
         logger.info(f"Created new user via Google Sign-In: {email_lower}")
     else:
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact support.")
         logger.info(f"User signed in via Google Sign-In: {email_lower}")
 
     token = generate_token(str(user.id))
