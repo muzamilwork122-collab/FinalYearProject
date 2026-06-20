@@ -440,7 +440,7 @@ const RepairShopLocator = () => {
             Find repair shops near you.
           </h2>
           <p className="mt-3 text-muted-foreground">
-            We detect your area and pull mobile-repair shops from OpenStreetMap — no GPS permission required.
+            We detect your area and pull mobile-repair shops from OpenStreetMap no GPS permission required.
           </p>
         </div>
 

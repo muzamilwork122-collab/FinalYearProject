@@ -39,7 +39,7 @@ export default function Footer() {
 
       <div className="border-t border-border">
         <div className="container mx-auto flex flex-col gap-2 px-6 py-5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <span>© {year} ScreenScan — final-year project.</span>
+          <span>© {year} ScreenScan</span>
           <span>Uploaded images are analysed, not shared.</span>
         </div>
       </div>

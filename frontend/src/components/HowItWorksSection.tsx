@@ -13,7 +13,7 @@ const STEPS = [
     number: "02",
     title: "AI inspects the damage",
     description:
-      "The screen is checked for cracks, dead pixels and display faults, then scored for severity.",
+      "The screen is checked for cracks and display faults then scored for severity.",
     image: screenScanning,
   },
   {

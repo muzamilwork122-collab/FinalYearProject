@@ -12,7 +12,7 @@ const POINTS = [
   {
     term: "The approach",
     detail:
-      "ScreenScan reads the photo, grades the damage on a fixed scale, and attaches a rupee estimate — the same way, every time.",
+      "ScreenScan reads the photo, grades the damage on a fixed scale, and attaches a rupee estimate the same way, every time.",
   },
 ];
 
@@ -26,7 +26,7 @@ export default function AboutSection() {
             A consistent second opinion before you pay for a repair.
           </h2>
           <p className="mt-4 text-muted-foreground">
-            Built as a final-year project to make screen-damage assessment objective and
+            Built a project to make screen-damage assessment objective and
             repeatable for everyday users and repair shops alike.
           </p>
         </div>
