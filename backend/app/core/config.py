@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     DATABASE_URL:      str = "postgresql://postgres:password@localhost:5432/damage_ai"
     OPENAI_API_KEY:    str = ""
     ANTHROPIC_API_KEY: str = ""
+
+    # Per-task model selection (override via env, no code change needed).
+    # VISION_MODEL analyzes the uploaded screen image — keep this a strong model.
+    # CHAT_MODEL powers the text-only assistant and repair insights — a cheaper
+    # model is fine here since it never sees an image.
+    VISION_MODEL:      str = "gpt-5"
+    CHAT_MODEL:        str = "gpt-4o-mini"
     FRONTEND_URL:      str = "http://localhost:5173"
     GOOGLE_CLIENT_ID:  str = ""
 

@@ -4,6 +4,9 @@ AI-powered phone-screen damage detection. Upload a photo of a cracked screen and
 severity score, an annotated damage overlay, a repairable/replace verdict, repair-cost
 estimates (Original vs. aftermarket), and real repair shops near you.
 
+The platform also includes a **shopkeeper module** (repair shops register, get admin approval,
+and appear with priority on the map) and **live chat** between customers and approved shops.
+
 ## Tech Stack
 
 - **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS
@@ -11,6 +14,7 @@ estimates (Original vs. aftermarket), and real repair shops near you.
 - **Database**: PostgreSQL
 - **AI**: OpenAI GPT-4o (vision) for damage analysis and the chat assistant
 - **Maps**: OpenStreetMap (Nominatim + Overpass) and Leaflet — no map API key required
+- **Shopkeeper & live chat**: REST API + HTTP polling (no WebSocket server)
 - **Deployment**: Docker Compose + Nginx
 
 > The running server is **OpenAI-only** — it does not load local PyTorch models. The
@@ -108,6 +112,43 @@ npm run dev
 
 Open the URL Vite prints (default <http://localhost:5173>).
 
+### 5. Admin panel (optional)
+
+After the backend has started at least once, sign in at <http://localhost:5173/admin> with the
+default credentials from `backend/.env` (`ADMIN_EMAIL` / `ADMIN_PASSWORD`). The admin account is
+seeded on first startup and can then be edited from the panel (name, email, profile picture,
+password). Changing `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env` later does **not** overwrite an
+existing admin row — update credentials through the panel instead.
+
+---
+
+## Modules
+
+### Shopkeepers
+
+- **Registration** (`/shop/register`): three-step flow — account → shop details → verification document (stored inline as base64).
+- **Review**: applications start as `pending`; an admin approves or rejects (with reason) at `/admin/shops`.
+- **Map listing**: approved, active shops are returned by `/api/shops/nearby` and shown **ahead of** OpenStreetMap results in the repair locator.
+- **Dashboard** (`/shop`): shopkeepers sign in with email/password and view status, shop info, and messages.
+
+Auth uses stateless HMAC tokens: `shop:{uuid}.{signature}`.
+
+### Live chat (customer ↔ shopkeeper)
+
+- One conversation thread per user–shop pair (`conversations` + `messages` tables).
+- Same REST endpoints for both parties; the token (`user` or `shop:`) determines the role.
+- **Real-time delivery**: HTTP polling (threads every ~5s, open thread messages every ~3s) — no WebSocket server, which keeps deployment simple (including serverless frontends like Vercel).
+- **Notifications**: header bell with unread dropdown; optional desktop alerts via the Web Notifications API.
+- **UI**: `/messages` for customers; Messages tab on `/shop` for shopkeepers.
+
+Unread counts use `read_by_user` / `read_by_shop` flags on each message.
+
+### Admin panel
+
+- **Routes**: `/admin` (dashboard), `/admin/users`, `/admin/shops`.
+- **Capabilities**: review shop applications, suspend/reactivate users and shops, view user detail and stats.
+- Auth uses `admin:{email}.{signature}` tokens backed by a single `admin_accounts` row.
+
 ---
 
 ## Environment Variables
@@ -166,26 +207,37 @@ DB_PASSWORD=password docker-compose -f deployment/docker-compose.yml up --build
 
 ```
 FYP/
-├── frontend/         # React + Vite SPA
+├── frontend/              # React + Vite SPA
 │   ├── src/
-│   │   ├── components/   # UI (UploadSection, RepairShopLocator, auth, …)
-│   │   ├── context/      # AuthContext, PreferencesContext (theme)
-│   │   ├── pages/        # Index, Dashboard, Assistant, Settings, …
-│   │   └── lib/          # repairShops.ts (OSM geocode + shop lookup), utils
+│   │   ├── components/
+│   │   │   ├── chat/          # ConversationsPanel, NotificationBell, ChatNotifier
+│   │   │   └── …              # UploadSection, RepairShopLocator, Header, …
+│   │   ├── context/           # AuthContext, PreferencesContext (theme)
+│   │   ├── hooks/             # useChatThreads, useChatNotifications
+│   │   ├── pages/
+│   │   │   ├── admin/         # AdminLayout, AdminOverview, AdminUsers, AdminShops
+│   │   │   ├── Dashboard.tsx, Messages.tsx, ShopRegister.tsx, ShopDashboard.tsx, …
+│   │   └── lib/
+│   │       ├── shopApi.ts     # Shopkeeper + admin API client
+│   │       ├── chatApi.ts     # Live chat API client
+│   │       └── repairShops.ts # OSM geocode + shop lookup
 │   └── .env.example
-├── backend/          # FastAPI server
+├── backend/               # FastAPI server
 │   ├── app/
-│   │   ├── api/routes/   # predict, chat, auth, insights
-│   │   ├── core/         # config, logging
-│   │   ├── db/           # SQLAlchemy models + session
-│   │   ├── schemas/      # Pydantic schemas
-│   │   └── main.py       # App entry + router registration
+│   │   ├── api/routes/
+│   │   │   ├── predict.py, auth.py, chat.py      # Analysis, users, AI assistant
+│   │   │   ├── shopkeeper.py                     # Shop registration, login, nearby shops
+│   │   │   ├── admin.py                          # Admin auth, review, user/shop management
+│   │   │   └── chat_threads.py                   # Customer ↔ shopkeeper messaging
+│   │   ├── core/              # config, logging
+│   │   ├── db/                # SQLAlchemy models (User, Shopkeeper, Conversation, …)
+│   │   └── main.py            # App entry + router registration
 │   ├── tests/
-│   ├── requirements.txt      # Runtime deps (OpenAI-only mode)
-│   ├── requirements-ml.txt   # Optional ML/training deps
+│   ├── requirements.txt       # Runtime deps (OpenAI-only mode)
+│   ├── requirements-ml.txt    # Optional ML/training deps
 │   └── .env.example
-├── ml_training/      # Optional Jupyter notebooks (legacy, not required)
-└── deployment/       # docker-compose.yml + nginx.conf
+├── ml_training/           # Optional Jupyter notebooks (legacy, not required)
+└── deployment/            # docker-compose.yml + nginx.conf
 ```
 
 ---
@@ -208,7 +260,7 @@ All routes are prefixed with `/api`. Full, always-current docs at `/docs` (Swagg
 | `GET` | `/api/shopkeepers/me` | Shop application status |
 | `GET` | `/api/shops/nearby` | Approved partner shops near a location (priority on the map) |
 | `POST` | `/api/admin/login` | Admin sign-in |
-| `GET` · `PATCH` | `/api/admin/profile` | View / edit admin profile (name, email) |
+| `GET` · `PATCH` | `/api/admin/profile` | View / edit admin profile (name, email, avatar) |
 | `POST` | `/api/admin/change-password` | Change the admin password |
 | `GET` | `/api/admin/stats` · `/api/admin/users` · `/api/admin/users/{id}` · `/api/admin/shopkeepers` | Admin dashboard / users / shops data |
 | `POST` | `/api/admin/shopkeepers/{id}/approve` · `/reject` · `/active` | Review applications, suspend / reactivate shops |
@@ -218,6 +270,23 @@ All routes are prefixed with `/api`. Full, always-current docs at `/docs` (Swagg
 | `GET` · `POST` | `/api/chat/threads/{id}/messages` | Fetch / send messages in a thread |
 | `GET` | `/api/chat/unread` | Total unread count (powers the notification badge) |
 | `GET` | `/health` | Health check |
+
+> **Note:** `/api/chat` is the AI repair assistant (GPT). `/api/chat/threads/*` is live messaging between users and shopkeepers.
+
+---
+
+## Key frontend routes
+
+| Route | Who | Purpose |
+|-------|-----|---------|
+| `/` | Public | Landing / upload |
+| `/dashboard` | User | Analysis history, links to messages |
+| `/messages` | User | Live chat with shops |
+| `/shop/register` | Public | Shopkeeper registration |
+| `/shop` | Shopkeeper | Shop dashboard + messages |
+| `/admin` | Admin | Dashboard overview |
+| `/admin/users` | Admin | User management |
+| `/admin/shops` | Admin | Shop application review |
 
 ---
 
@@ -244,6 +313,10 @@ pytest tests/ -v
   the backend is down or crashed — check its terminal.
 - **Port already in use (8000)** — another process holds the port. Stop it, or run uvicorn on
   a different `--port` and update `VITE_API_BASE_URL` accordingly.
+- **Admin profile save fails on email** — the admin account skips DNS/MX deliverability checks;
+  use a valid-looking email format. Default `admin@dashboard.com` is supported.
+- **Chat feels delayed** — live chat uses polling, not WebSockets. Expect up to a few seconds
+  before new messages appear unless you refresh or wait for the next poll.
 
 ---
 

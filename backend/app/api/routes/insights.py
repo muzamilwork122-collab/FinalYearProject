@@ -49,7 +49,7 @@ Rules:
 - Keep all text short and actionable"""
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=settings.CHAT_MODEL,
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}]
         )
