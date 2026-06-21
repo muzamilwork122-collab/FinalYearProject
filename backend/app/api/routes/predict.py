@@ -96,6 +96,22 @@ IMAGE GEOMETRY (critical for the bounding boxes):
 - Every bbox you output MUST be in PIXELS of THIS image, as [x, y, w, h] where (x, y) is the
   top-left of the box and (w, h) is its width and height in pixels.
 
+CRITICAL — REAL PHYSICAL DAMAGE vs A CRACKED-SCREEN WALLPAPER/PHOTO:
+Many phones display a "broken screen" wallpaper or are showing a photo of a cracked phone. That
+is NOT real damage and must score 0. Decide carefully before reporting any crack:
+- REAL glass damage signs: cracks/shatter lines run ACROSS the entire display and continue OVER
+  the status bar, clock, app icons and other UI — independent of the picture behind them; they
+  catch light and reflections; there is raised/chipped glass, rainbow shimmer, black/leaking LCD
+  ink, dead or discolored zones, or visible distortion that follows the physical glass.
+- FAKE / WALLPAPER cracks: the crack pattern sits BEHIND the interface — app icons, the clock,
+  the status bar and notifications render perfectly cleanly ON TOP of the "cracks"; the pattern is
+  flat, evenly sharp, has no light reflection, and is confined to the wallpaper area only.
+- If the cracks are only in the displayed image/wallpaper and the UI overlays them cleanly, treat
+  it as NO real damage: set model_valid=true, damage_score=0, severity="low", repairable=true,
+  detections=[], and use damage_description to explain it looks like a cracked-screen wallpaper or
+  a photo of a broken phone, not physical damage to THIS device.
+- Only output a detection for damage you are confident is genuine physical glass/panel damage.
+
 Respond ONLY with a valid JSON object in exactly this format:
 {{
     "model_valid": true or false,
@@ -166,11 +182,11 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
 - Prefer several smaller boxes over one big box. If a crack runs into a corner, box the actual visible crack, not the entire side.
 - Ensure x >= 0, y >= 0, x + w <= {width}, y + h <= {height}. Look carefully at where the damage actually is before choosing coordinates.
 - detections array can be empty ONLY if there is genuinely no visible damage."""
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=1500,
-            response_format={"type": "json_object"},
-            messages=[{
+        model = settings.VISION_MODEL
+        params = {
+            "model": model,
+            "response_format": {"type": "json_object"},
+            "messages": [{
                 "role": "user",
                 "content": [
                     {
@@ -185,8 +201,18 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
                         "text": prompt
                     }
                 ]
-            }]
-        )
+            }],
+        }
+
+        # GPT-5 / o-series reasoning models renamed max_tokens to
+        # max_completion_tokens and spend part of the budget on hidden
+        # reasoning, so give them more room to still emit the full JSON.
+        if model.startswith(("gpt-5", "o1", "o3", "o4")):
+            params["max_completion_tokens"] = 4000
+        else:
+            params["max_tokens"] = 1500
+
+        response = client.chat.completions.create(**params)
 
         import json
         choice = response.choices[0]

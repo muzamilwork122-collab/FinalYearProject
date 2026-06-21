@@ -81,7 +81,7 @@ async def llm_response(messages: List[ChatMessage], context: Optional[str] = Non
             if m.role in ("user", "assistant"):
                 openai_messages.append({"role": m.role, "content": m.content})
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.CHAT_MODEL,
             messages=openai_messages,
             max_tokens=200,
             temperature=0.7,
