@@ -90,45 +90,46 @@ async def is_wallpaper_or_fake(image_bytes: bytes) -> "tuple[bool, str]":
         client = OpenAI(api_key=key)
         b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        screening_prompt = """You are a forensic image analyst specialising in smartphone screen photographs.
-Your ONLY job right now is to decide whether the crack/damage visible in this image is:
-  (A) a WALLPAPER, SCREENSAVER, or GRAPHIC — i.e. a digital image of cracks displayed ON the screen, OR a photo of another phone/screen, OR an AI-generated broken-glass image.
-  (B) REAL PHYSICAL DAMAGE — actual cracks, shatters, or dead zones in the glass/LCD of the device being photographed.
+        screening_prompt = """You are a forensic image analyst. Your ONLY job is to answer:
+Is the cracked/broken glass appearance in this image a WALLPAPER/GRAPHIC, or REAL physical damage?
 
-Apply these hard rules in order and stop at the first match:
+A "cracked screen wallpaper" is when the phone's display is perfectly intact but the user has set
+a background image that looks like broken glass. The phone screen itself is fine — it is just
+showing a picture of cracks.
 
-RULE 1 – UI OVERLAY TEST (most reliable):
-  Look at the top status bar (clock, battery, signal) and bottom navigation bar.
-  • If those bars appear CLEAN and UNDAMAGED while crack lines are only visible in the wallpaper layer BENEATH the UI → verdict: WALLPAPER.
-  • Real physical cracks exist in the glass; they appear ON TOP of everything including the UI elements.
+Study the image and apply these two primary tests:
 
-RULE 2 – CRACK TEXTURE TEST:
-  Examine crack lines closely.
-  • If lines are perfectly uniform in sharpness, have no specular reflection, no raised edge, no 3-D depth, no glass-chip debris around them → verdict: WALLPAPER (flat 2-D graphic).
-  • Real cracks: irregular brightness along their length, visible depth, possible rainbow iridescence, micro-chips, rough edges.
+PRIMARY TEST — UI LAYER (most reliable signal):
+Look carefully at the status bar area (top of screen: clock, battery icon, WiFi/signal icons)
+and the navigation bar (bottom of screen: home button, back button, or gesture bar).
+- If those UI elements are CLEAN, SHARP and undamaged, but crack lines appear BEHIND them in
+  the wallpaper layer → the cracks are a WALLPAPER graphic. Verdict: WALLPAPER.
+- If crack lines physically pass OVER and interrupt the clock digits, battery icon, or navigation
+  buttons — cutting through them as if the glass itself is broken — → Verdict: REAL.
 
-RULE 3 – PATTERN SYMMETRY TEST:
-  • If the crack pattern is a perfect spider-web, looks like clip-art, or resembles a stock "broken glass" texture (too artistic, too symmetric, no clear single impact physics) → verdict: WALLPAPER.
+SECONDARY TEST — CRACK APPEARANCE:
+- WALLPAPER cracks: perfectly uniform sharpness all along their length, flat/matte appearance,
+  no 3-D depth, no light reflection variation, look like a 2-D image or clip-art.
+- REAL cracks: uneven brightness along the crack, visible depth/raised edges, possible rainbow
+  iridescence, micro-branching, glass chip debris, or dark LCD bleed zones nearby.
 
-RULE 4 – PHOTO-OF-A-PHONE TEST:
-  • If the image shows an entire phone body (you can see the phone's frame/bezels/sides/buttons) rather than a close-up of just the screen surface → verdict: UNVERIFIABLE (treat as wallpaper).
+IMPORTANT RULES:
+- Do NOT say "photo of whole phone" or ask for a different photo. Just decide: WALLPAPER or REAL.
+- If you can see a status bar or any UI element that is clean while cracks are below it → WALLPAPER.
+- If uncertain, default to WALLPAPER.
 
-RULE 5 – BENEFIT OF THE DOUBT:
-  • Only if NONE of the above rules flag it as fake, and you can see clear evidence of physical 3-D glass damage → verdict: REAL.
-  • When uncertain, default to WALLPAPER. A missed real crack is acceptable. A false "real damage" report on a wallpaper is not.
-
-Respond ONLY with a JSON object, no markdown, no explanation outside the JSON:
+Respond ONLY with this JSON (no markdown):
 {
   "verdict": "WALLPAPER" or "REAL",
-  "confidence": number 0.0-1.0,
-  "reason": "one sentence explaining the single most important signal that led to this verdict"
+  "confidence": 0.0 to 1.0,
+  "reason": "one sentence: the single most important thing you saw that determined the verdict"
 }"""
 
-        response = client.chat.completions.create(
-            model=settings.VISION_MODEL,
-            response_format={"type": "json_object"},
-            max_tokens=200,
-            messages=[{
+        model = settings.VISION_MODEL
+        call_params = {
+            "model": model,
+            "response_format": {"type": "json_object"},
+            "messages": [{
                 "role": "user",
                 "content": [
                     {
@@ -141,7 +142,13 @@ Respond ONLY with a JSON object, no markdown, no explanation outside the JSON:
                     {"type": "text", "text": screening_prompt},
                 ],
             }],
-        )
+        }
+        if model.startswith(("gpt-5", "o1", "o3", "o4")):
+            call_params["max_completion_tokens"] = 300
+        else:
+            call_params["max_tokens"] = 300
+
+        response = client.chat.completions.create(**call_params)
 
         raw = (response.choices[0].message.content or "").strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
@@ -416,7 +423,6 @@ async def predict(
     is_fake, fake_reason = await is_wallpaper_or_fake(jpeg_bytes)
     if is_fake:
         logger.info(f"Wallpaper pre-screen blocked submission: {fake_reason}")
-        # Return a zero-damage response immediately — no main analysis call needed.
         return {
             "severity":        "low",
             "damage_score":    0,
@@ -429,14 +435,14 @@ async def predict(
             "repair_status":   "repairable",
             "recommendation":  "No physical damage detected.",
             "repair_reason":   (
-                f"This appears to be a cracked-screen wallpaper or a graphic image of broken glass, "
-                f"not actual physical damage to the device. {fake_reason} "
-                f"Please photograph the real screen surface directly if your screen is genuinely damaged."
+                "This looks like a cracked-screen wallpaper — the screen itself appears intact. "
+                f"{fake_reason} "
+                "If your screen is genuinely damaged, please photograph it directly with the display turned on."
             ),
-            "repair_advice":   "No repair needed — no real damage was detected.",
+            "repair_advice":   "No repair needed — no real physical damage was detected on this device.",
             "nearby_shops":    [],
             "repair_options":  [],
-            "cautions":        [],
+            "cautions":        ["This image appears to show a cracked-screen wallpaper, not real damage."],
         }
 
     # ── 3b. Always use OpenAI (no local models) ───────────────────
