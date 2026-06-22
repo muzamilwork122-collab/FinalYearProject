@@ -17,7 +17,6 @@ limiter = Limiter(key_func=get_remote_address)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-chat_model_name = "gpt-4o-mini"
 
 
 class ChatMessage(BaseModel):
@@ -82,7 +81,7 @@ async def llm_response(messages: List[ChatMessage], context: Optional[str] = Non
             if m.role in ("user", "assistant"):
                 openai_messages.append({"role": m.role, "content": m.content})
         response = client.chat.completions.create(
-            model=chat_model_name,
+            model="gpt-4o-mini",
             messages=openai_messages,
             max_tokens=200,
             temperature=0.7,

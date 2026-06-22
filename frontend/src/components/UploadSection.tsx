@@ -12,6 +12,7 @@ import { usePreferences } from "@/context/PreferencesContext";
 import AnalysisChat from "@/components/AnalysisChat";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const FAKE_WALLPAPER_INPUT_MESSAGE = "The mobile screen is not actually damaged; a fake wallpaper is being used.";
 
 interface Detection {
   label: string;
@@ -172,6 +173,15 @@ const UploadSection = forwardRef<HTMLElement, UploadSectionProps>(({ onAnalysisC
       setProgress(0);
       if (axios.isAxiosError(error) && error.response?.status === 422) {
         const detail: string = error.response.data?.detail || "";
+        const isFakeWallpaperInput =
+          detail === FAKE_WALLPAPER_INPUT_MESSAGE ||
+          /fake wallpaper|not actually damaged/i.test(detail);
+        if (isFakeWallpaperInput) {
+          toast.info("No physical damage detected", {
+            description: detail || FAKE_WALLPAPER_INPUT_MESSAGE,
+          });
+          return;
+        }
         const isModelError = /model/i.test(detail);
         toast.error(isModelError ? "Invalid phone model" : "Invalid image", {
           description: detail || "Upload a clear photo of a phone screen.",
