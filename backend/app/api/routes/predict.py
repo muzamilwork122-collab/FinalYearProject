@@ -92,6 +92,15 @@ def _looks_like_fake_wallpaper_input(phone_model: str) -> bool:
     return has_capital_initial or has_trailing_full_stop
 
 
+def _get_vision_model_name() -> str:
+    # Keep predict robust even if VISION_MODEL is absent from env/config.
+    configured_model = getattr(settings, "VISION_MODEL", "")
+    normalized_model = str(configured_model or "").strip()
+    if normalized_model:
+        return normalized_model
+    return "gpt-4o"
+
+
 def _apply_no_damage_override(ai_result: dict, reason: str) -> dict:
     """Force a safe no-damage verdict when wallpaper crack is detected."""
     if not isinstance(ai_result, dict):
@@ -241,7 +250,7 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
 - Prefer several smaller boxes over one big box. If a crack runs into a corner, box the actual visible crack, not the entire side.
 - Ensure x >= 0, y >= 0, x + w <= {width}, y + h <= {height}. Look carefully at where the damage actually is before choosing coordinates.
 - detections array can be empty ONLY if there is genuinely no visible damage."""
-        model = settings.VISION_MODEL
+        model = _get_vision_model_name()
         params = {
             "model": model,
             "response_format": {"type": "json_object"},
@@ -326,7 +335,7 @@ Decision rules:
 - When uncertain, be conservative and favor "is_physical_damage": false.
 """
 
-        model = settings.VISION_MODEL
+        model = _get_vision_model_name()
         params = {
             "model": model,
             "response_format": {"type": "json_object"},
