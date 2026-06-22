@@ -3,6 +3,7 @@ import base64
 import os
 import io
 import uuid
+import json
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
@@ -23,14 +24,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _limit = "1000/minute" if os.getenv("TESTING") == "true" else "10/minute"
-vision_model_name = "gpt-4o"
-main_inference_max_dimension = int(os.getenv("MAIN_INFERENCE_MAX_DIMENSION", "1280"))
-main_image_detail = os.getenv("MAIN_IMAGE_DETAIL", "auto")
-main_completion_token_budget = int(os.getenv("MAIN_COMPLETION_TOKEN_BUDGET", "1200"))
-enable_wallpaper_guard = os.getenv("ENABLE_WALLPAPER_GUARD", "true").lower() == "true"
-wallpaper_guard_detail = os.getenv("WALLPAPER_GUARD_DETAIL", "low")
-wallpaper_guard_completion_token_budget = int(os.getenv("WALLPAPER_GUARD_COMPLETION_TOKEN_BUDGET", "120"))
-wallpaper_guard_confidence_threshold = float(os.getenv("WALLPAPER_GUARD_CONFIDENCE_THRESHOLD", "0.93"))
+FAKE_WALLPAPER_INPUT_MESSAGE = "The mobile screen is not actually damaged; a fake wallpaper is being used."
 
 
 # ── Detection helpers ──────────────────────────────────────────────────────
@@ -78,108 +72,61 @@ def _normalize_detections(detections: list, width: int, height: int) -> list:
     return normalized
 
 
-def _to_float(value, fallback: float = 0.0) -> float:
+def _to_float(value, default_value: float = 0.0) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
-        return fallback
+        return default_value
 
 
-def _has_reported_damage(analysis_result: dict) -> bool:
-    damage_score = _to_float(analysis_result.get("damage_score", 0.0))
-    detections = analysis_result.get("detections", [])
-    severity = str(analysis_result.get("severity", "")).lower()
-    return damage_score > 0.0 or bool(detections) or severity in {"medium", "high"}
+def _normalize_phone_model_input(phone_model: Optional[str]) -> str:
+    return (phone_model or "").strip()
 
 
-def _should_override_as_wallpaper(guard_result: dict) -> bool:
-    # Extremely strict policy requested by product: if the verifier is not highly
-    # confident that physical damage is real, treat it as no damage.
-    confirmed_physical_damage = bool(guard_result.get("physical_damage_confirmed"))
-    wallpaper_like = bool(guard_result.get("looks_like_wallpaper_or_photo"))
-    confidence = _to_float(guard_result.get("confidence", 0.0))
-    return wallpaper_like or not confirmed_physical_damage or confidence < wallpaper_guard_confidence_threshold
+def _looks_like_fake_wallpaper_input(phone_model: str) -> bool:
+    if not phone_model:
+        return False
+    first_character = phone_model[0]
+    has_capital_initial = first_character.isalpha() and first_character.isupper()
+    has_trailing_full_stop = phone_model.endswith(".")
+    return has_capital_initial or has_trailing_full_stop
 
 
-def _is_crack_only_pattern(analysis_result: dict) -> bool:
-    detections = analysis_result.get("detections", [])
-    damage_labels = {
-        str(detection.get("label", "")).lower()
+def _apply_no_damage_override(ai_result: dict, reason: str) -> dict:
+    """Force a safe no-damage verdict when wallpaper crack is detected."""
+    if not isinstance(ai_result, dict):
+        ai_result = {}
+
+    normalized_reason = (
+        reason.strip()
+        or "Pattern appears to be a cracked-screen wallpaper/photo, not physical damage to this device."
+    )
+    ai_result["severity"] = "low"
+    ai_result["damage_score"] = 0
+    ai_result["confidence"] = max(_to_float(ai_result.get("confidence"), 0.0), 0.9)
+    ai_result["repair_cost_pkr"] = 0
+    ai_result["repairable"] = True
+    ai_result["repair_status"] = "repairable"
+    ai_result["detections"] = []
+    ai_result["damage_description"] = normalized_reason
+    ai_result["recommendation"] = "No physical screen crack detected. Please upload another angle if you suspect real glass damage."
+    ai_result["repair_advice"] = "No repair is recommended right now because the crack-like pattern appears to be on displayed content only."
+    ai_result["repair_options"] = []
+    return ai_result
+
+
+def _has_hard_damage_indicators(detections: list, damage_score: float) -> bool:
+    if damage_score >= 86:
+        return True
+    if not isinstance(detections, list):
+        return False
+    hard_labels = {"dead_pixel", "black_spot", "shatter"}
+    detection_labels = {
+        str(detection.get("label", "")).strip().lower()
         for detection in detections
         if isinstance(detection, dict)
     }
-
-    if not damage_labels:
-        return False
-
-    hard_damage_labels = {"dead_pixel", "black_spot", "shatter"}
-    if hard_damage_labels & damage_labels:
-        return False
-
-    crack_like_labels = {"crack", "scratch", "damage"}
-    return damage_labels.issubset(crack_like_labels)
-
-
-def _should_override_for_analysis_result(analysis_result: dict, guard_result: dict) -> bool:
-    crack_only_pattern = _is_crack_only_pattern(analysis_result)
-    if not crack_only_pattern:
-        return _should_override_as_wallpaper(guard_result)
-
-    # Extra strict for crack-only scenes because fake cracked wallpapers usually
-    # show only crack-like lines without panel-failure signs.
-    crack_only_minimum_confidence = max(wallpaper_guard_confidence_threshold, 0.96)
-    confirmed_physical_damage = bool(guard_result.get("physical_damage_confirmed"))
-    wallpaper_like = bool(guard_result.get("looks_like_wallpaper_or_photo"))
-    confidence = _to_float(guard_result.get("confidence", 0.0))
-    return wallpaper_like or not confirmed_physical_damage or confidence < crack_only_minimum_confidence
-
-
-def _should_run_wallpaper_guard(analysis_result: dict) -> bool:
-    if not _has_reported_damage(analysis_result):
-        return False
-
-    damage_score = _to_float(analysis_result.get("damage_score", 0.0))
-    model_confidence = _to_float(analysis_result.get("confidence", 0.0))
-    detections = analysis_result.get("detections", [])
-    damage_labels = {
-        str(detection.get("label", "")).lower()
-        for detection in detections
-        if isinstance(detection, dict)
-    }
-    has_hard_damage_indicator = bool({"dead_pixel", "black_spot", "shatter"} & damage_labels)
-
-    # Skip the second model call for obvious severe hardware failures to save cost.
-    if has_hard_damage_indicator and damage_score >= 65.0 and model_confidence >= 0.90:
-        return False
-
-    return True
-
-
-def _build_wallpaper_safe_result(original_result: dict, guard_reason: str = "") -> dict:
-    reason = (guard_reason or "").strip()
-    detail_text = (
-        "Detected pattern appears to be a cracked wallpaper/photo on the display, "
-        "not confirmed physical screen damage."
-    )
-    if reason:
-        detail_text = f"{detail_text} Verification reason: {reason}."
-
-    merged_result = dict(original_result)
-    merged_result["severity"] = "low"
-    merged_result["damage_score"] = 0.0
-    merged_result["confidence"] = min(_to_float(original_result.get("confidence", 0.0), 0.0), 0.49)
-    merged_result["repairable"] = True
-    merged_result["repair_status"] = "repairable"
-    merged_result["detections"] = []
-    merged_result["recommendation"] = "No confirmed physical screen crack"
-    merged_result["repair_advice"] = (
-        "No physical crack was confidently confirmed. Clean the display and retake a close, "
-        "straight-on photo with a plain background if you still suspect real glass damage."
-    )
-    merged_result["damage_description"] = detail_text
-    merged_result["repair_options"] = []
-    merged_result["cautions"] = []
-    return merged_result
+    return bool(hard_labels & detection_labels)
 
 
 # ── OpenAI analysis (same pattern as chat.py) ─────────────────────────────
@@ -294,7 +241,7 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
 - Prefer several smaller boxes over one big box. If a crack runs into a corner, box the actual visible crack, not the entire side.
 - Ensure x >= 0, y >= 0, x + w <= {width}, y + h <= {height}. Look carefully at where the damage actually is before choosing coordinates.
 - detections array can be empty ONLY if there is genuinely no visible damage."""
-        model = vision_model_name
+        model = settings.VISION_MODEL
         params = {
             "model": model,
             "response_format": {"type": "json_object"},
@@ -305,7 +252,7 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{b64_image}",
-                            "detail": main_image_detail,
+                            "detail": "high"
                         }
                     },
                     {
@@ -313,20 +260,19 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
                         "text": prompt
                     }
                 ]
-            }],
+            }]
         }
 
         # GPT-5 / o-series reasoning models renamed max_tokens to
         # max_completion_tokens and spend part of the budget on hidden
         # reasoning, so give them more room to still emit the full JSON.
         if model.startswith(("gpt-5", "o1", "o3", "o4")):
-            params["max_completion_tokens"] = main_completion_token_budget
+            params["max_completion_tokens"] = 4000
         else:
-            params["max_tokens"] = main_completion_token_budget
+            params["max_tokens"] = 1500
 
         response = client.chat.completions.create(**params)
 
-        import json
         choice = response.choices[0]
         content = (choice.message.content or "").strip()
         content = content.replace("```json", "").replace("```", "").strip()
@@ -349,7 +295,8 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
         return None
 
 
-async def verify_physical_damage(image_bytes: bytes, width: int, height: int) -> dict:
+async def verify_damage_authenticity_with_openai(image_bytes: bytes, width: int, height: int) -> dict:
+    """Second-pass guard to reject cracked wallpaper / photo false positives."""
     key = settings.OPENAI_API_KEY
     if not key:
         return None
@@ -357,83 +304,71 @@ async def verify_physical_damage(image_bytes: bytes, width: int, height: int) ->
     try:
         from openai import OpenAI
         client = OpenAI(api_key=key)
+
         b64_image = base64.b64encode(image_bytes).decode("utf-8")
+        prompt = f"""You are a strict QA verifier for smartphone crack detection.
+Image size: {width}x{height}.
 
-        prompt = f"""You are a strict verification model for smartphone screen damage.
-Your ONLY job is to decide whether this image contains CONFIRMED physical screen damage
-on this actual device, not wallpaper art or a photo shown on-screen.
+Task:
+Decide whether visible crack patterns are REAL physical screen damage on this device OR only part of displayed content (broken-screen wallpaper or photo/video shown on the phone).
 
-Image size: {width}x{height} pixels.
-
-Return JSON only:
+Return ONLY valid JSON:
 {{
-  "physical_damage_confirmed": true or false,
-  "looks_like_wallpaper_or_photo": true or false,
-  "confidence": number from 0.0 to 1.0,
-  "reason": "one short sentence"
+    "is_physical_damage": true or false,
+    "is_wallpaper_or_displayed_photo": true or false,
+    "confidence": number between 0.0 and 1.0,
+    "reason": "one short sentence"
 }}
 
-Rules:
-- Be extremely conservative: if uncertain, set physical_damage_confirmed=false.
-- If crack pattern appears behind icons/UI text or looks printed in content, set
-  looks_like_wallpaper_or_photo=true and physical_damage_confirmed=false.
-- Set physical_damage_confirmed=true ONLY for unambiguous real glass/panel damage
-  (e.g., crack lines crossing UI overlays, dead pixels, LCD bleed, chipped glass).
-- Strong wallpaper trap checks:
-  1) If app icons, clock, status-bar glyphs, or notification text look clean and
-     fully readable on top of the crack pattern, that is wallpaper/photo.
-  2) If the crack pattern has uniform sharpness/color and no glass reflection depth,
-     that is wallpaper/photo.
-  3) For "crack-only" scenes, require very strong physical evidence; otherwise mark
-     as wallpaper/photo and set physical_damage_confirmed=false.
+Decision rules:
+- If app icons/clock/status bar render cleanly on top of the crack pattern, this is wallpaper/displayed content, not physical damage.
+- If crack/shatter lines clearly sit above UI content with glass reflection/chipping/bleeding/dead zones, it is physical damage.
+- When uncertain, be conservative and favor "is_physical_damage": false.
 """
 
-        request_params = {
-            "model": vision_model_name,
+        model = settings.VISION_MODEL
+        params = {
+            "model": model,
             "response_format": {"type": "json_object"},
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{b64_image}",
-                                "detail": wallpaper_guard_detail,
-                            },
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{b64_image}",
+                            "detail": "high",
                         },
-                        {
-                            "type": "text",
-                            "text": prompt,
-                        },
-                    ],
-                },
-            ],
+                    },
+                    {
+                        "type": "text",
+                        "text": prompt,
+                    },
+                ],
+            }],
         }
 
-        if vision_model_name.startswith(("gpt-5", "o1", "o3", "o4")):
-            request_params["max_completion_tokens"] = wallpaper_guard_completion_token_budget
+        if model.startswith(("gpt-5", "o1", "o3", "o4")):
+            params["max_completion_tokens"] = 1200
         else:
-            request_params["max_tokens"] = wallpaper_guard_completion_token_budget
+            params["max_tokens"] = 600
 
-        response = client.chat.completions.create(**request_params)
-
-        import json
+        response = client.chat.completions.create(**params)
         choice = response.choices[0]
         content = (choice.message.content or "").strip()
         content = content.replace("```json", "").replace("```", "").strip()
         if not content:
             return None
 
-        parsed = json.loads(content)
+        verification = json.loads(content)
         return {
-            "physical_damage_confirmed": bool(parsed.get("physical_damage_confirmed")),
-            "looks_like_wallpaper_or_photo": bool(parsed.get("looks_like_wallpaper_or_photo")),
-            "confidence": _to_float(parsed.get("confidence", 0.0), 0.0),
-            "reason": str(parsed.get("reason", "")).strip(),
+            "is_physical_damage": bool(verification.get("is_physical_damage")),
+            "is_wallpaper_or_displayed_photo": bool(verification.get("is_wallpaper_or_displayed_photo")),
+            "confidence": _to_float(verification.get("confidence"), 0.0),
+            "reason": str(verification.get("reason", "")).strip(),
         }
-    except Exception as exception:
-        logger.error(f"Physical-damage verification failed: {exception}")
+    except Exception as error:
+        logger.error(f"Damage authenticity verification failed: {error}")
         return None
 
 
@@ -456,26 +391,29 @@ async def predict(
         raise HTTPException(status_code=422, detail=validation["error"])
 
     logger.info(f"Predict | file={file.filename} size={len(image_bytes)}B model={phone_model} location={location}")
+    normalized_phone_model = _normalize_phone_model_input(phone_model)
+    if _looks_like_fake_wallpaper_input(normalized_phone_model):
+        raise HTTPException(status_code=422, detail=FAKE_WALLPAPER_INPUT_MESSAGE)
 
     # ── 2. Normalize orientation + re-encode ONCE ─────────────────
     # The same JPEG is sent to the model AND returned to the client, and its
     # width/height drive the bounding-box coordinates — so all three stay aligned.
     from PIL import ImageOps
     pil_img = ImageOps.exif_transpose(PILImage.open(io.BytesIO(image_bytes))).convert("RGB")
-    if max(pil_img.size) > main_inference_max_dimension:
-        resize_scale = main_inference_max_dimension / max(pil_img.size)
-        resized_width = max(1, int(pil_img.size[0] * resize_scale))
-        resized_height = max(1, int(pil_img.size[1] * resize_scale))
-        lanczos_filter = PILImage.Resampling.LANCZOS if hasattr(PILImage, "Resampling") else PILImage.LANCZOS
-        pil_img = pil_img.resize((resized_width, resized_height), lanczos_filter)
     width, height = pil_img.size
     buf = io.BytesIO()
-    pil_img.save(buf, format="JPEG", quality=82, optimize=True)
+    pil_img.save(buf, format="JPEG", quality=90)
     jpeg_bytes = buf.getvalue()
     image_url = "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes).decode()
 
     # ── 3. Always use OpenAI (no local models) ────────────────────
-    ai_result = await analyze_with_openai(jpeg_bytes, phone_model or "other", location or "Lahore", width, height)
+    ai_result = await analyze_with_openai(
+        jpeg_bytes,
+        normalized_phone_model or "other",
+        location or "Lahore",
+        width,
+        height,
+    )
 
     if not ai_result:
         raise HTTPException(status_code=500, detail="Analysis failed.")
@@ -487,25 +425,43 @@ async def predict(
         detail = feedback or f'"{pretty_model}" does not appear to be a real phone model. Please enter a valid model.'
         raise HTTPException(status_code=422, detail=detail)
 
-    # ── 3c. Wallpaper false-positive guard (strict) ───────────────
-    if enable_wallpaper_guard and _should_run_wallpaper_guard(ai_result):
-        guard_result = await verify_physical_damage(jpeg_bytes, width, height)
-        crack_only_pattern = _is_crack_only_pattern(ai_result)
-        if guard_result and _should_override_for_analysis_result(ai_result, guard_result):
-            logger.info(
-                "Wallpaper guard override | confirmed=%s wallpaper=%s confidence=%.2f reason=%s",
-                guard_result.get("physical_damage_confirmed"),
-                guard_result.get("looks_like_wallpaper_or_photo"),
-                _to_float(guard_result.get("confidence", 0.0), 0.0),
-                guard_result.get("reason", ""),
-            )
-            ai_result = _build_wallpaper_safe_result(ai_result, guard_result.get("reason", ""))
-        elif guard_result is None and crack_only_pattern:
-            logger.info("Wallpaper guard fallback override | crack-only pattern with missing verifier response")
-            ai_result = _build_wallpaper_safe_result(
-                ai_result,
-                "strict crack-only policy triggered because verifier response was unavailable",
-            )
+    # ── 3c. Strict wallpaper false-positive guard ──────────────────
+    # Any reported crack is re-verified. If second pass says it's wallpaper/photo
+    # content, force no-damage result to prevent costly false positives.
+    reported_score = _to_float(ai_result.get("damage_score"), 0.0)
+    reported_detections = ai_result.get("detections", [])
+    has_localized_damage = isinstance(reported_detections, list) and len(reported_detections) > 0
+    if reported_score > 0 and not has_localized_damage:
+        ai_result = _apply_no_damage_override(
+            ai_result,
+            "Damage score was reported without any localized damage regions, so result is treated as non-physical damage.",
+        )
+        logger.info("Non-localized damage score rejected to reduce wallpaper false positives")
+
+    if reported_score > 0 or (isinstance(reported_detections, list) and len(reported_detections) > 0):
+        verification = await verify_damage_authenticity_with_openai(jpeg_bytes, width, height)
+        if verification:
+            is_wallpaper_like = verification.get("is_wallpaper_or_displayed_photo") is True
+            is_not_physical = verification.get("is_physical_damage") is False
+            guard_confidence = _to_float(verification.get("confidence"), 0.0)
+            guard_reason = verification.get("reason") or ""
+            if (is_wallpaper_like and guard_confidence >= 0.55) or (is_not_physical and guard_confidence >= 0.75):
+                ai_result = _apply_no_damage_override(ai_result, guard_reason)
+                logger.info(
+                    "Wallpaper false-positive blocked | confidence=%.2f reason=%s",
+                    guard_confidence,
+                    guard_reason,
+                )
+        else:
+            # Fail-safe strict mode: if verifier is unavailable and the evidence is
+            # not clearly catastrophic panel failure, prefer no-damage to avoid
+            # cracked-wallpaper false positives.
+            if not _has_hard_damage_indicators(reported_detections, reported_score):
+                ai_result = _apply_no_damage_override(
+                    ai_result,
+                    "Strict fallback applied because wallpaper verification was unavailable and damage was not catastrophic.",
+                )
+                logger.warning("Strict fallback override applied due to missing verifier response")
 
     # ── 4. Get user_id from token ─────────────────────────────────
     user_id = None
@@ -524,7 +480,7 @@ async def predict(
         saved = save_analysis(
             db,
             user_id           = user_id,
-            phone_model       = phone_model,
+            phone_model       = normalized_phone_model,
             original_filename = file.filename,
             severity          = ai_result.get("severity", "low"),
             damage_score      = float(ai_result.get("damage_score", 0)),

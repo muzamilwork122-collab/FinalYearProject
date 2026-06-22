@@ -199,6 +199,28 @@ class TestPredictEndpoint:
         )
         assert resp.status_code == 200
 
+    def test_capital_initial_model_returns_wallpaper_info(self, client):
+        """Capital initial in model should trigger fake wallpaper info response."""
+        img = make_phone_image()
+        resp = client.post(
+            "/api/predict",
+            files={"file": ("screen.jpg", img, "image/jpeg")},
+            data={"phone_model": "Iphone 14"},
+        )
+        assert resp.status_code == 422
+        assert "fake wallpaper" in resp.json()["detail"].lower()
+
+    def test_trailing_full_stop_model_returns_wallpaper_info(self, client):
+        """Trailing full stop in model should trigger fake wallpaper info response."""
+        img = make_phone_image()
+        resp = client.post(
+            "/api/predict",
+            files={"file": ("screen.jpg", img, "image/jpeg")},
+            data={"phone_model": "iphone 14."},
+        )
+        assert resp.status_code == 422
+        assert "fake wallpaper" in resp.json()["detail"].lower()
+
 
 # ══════════════════════════════════════════
 # HISTORY ENDPOINT TESTS
