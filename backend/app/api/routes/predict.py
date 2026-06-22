@@ -70,6 +70,57 @@ def _normalize_detections(detections: list, width: int, height: int) -> list:
     return normalized
 
 
+def _to_float(value, fallback: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _has_reported_damage(analysis_result: dict) -> bool:
+    damage_score = _to_float(analysis_result.get("damage_score", 0.0))
+    detections = analysis_result.get("detections", [])
+    severity = str(analysis_result.get("severity", "")).lower()
+    return damage_score > 0.0 or bool(detections) or severity in {"medium", "high"}
+
+
+def _should_override_as_wallpaper(guard_result: dict) -> bool:
+    # Extremely strict policy requested by product: if the verifier is not highly
+    # confident that physical damage is real, treat it as no damage.
+    minimum_confirmation_confidence = 0.80
+    confirmed_physical_damage = bool(guard_result.get("physical_damage_confirmed"))
+    wallpaper_like = bool(guard_result.get("looks_like_wallpaper_or_photo"))
+    confidence = _to_float(guard_result.get("confidence", 0.0))
+    return wallpaper_like or not confirmed_physical_damage or confidence < minimum_confirmation_confidence
+
+
+def _build_wallpaper_safe_result(original_result: dict, guard_reason: str = "") -> dict:
+    reason = (guard_reason or "").strip()
+    detail_text = (
+        "Detected pattern appears to be a cracked wallpaper/photo on the display, "
+        "not confirmed physical screen damage."
+    )
+    if reason:
+        detail_text = f"{detail_text} Verification reason: {reason}."
+
+    merged_result = dict(original_result)
+    merged_result["severity"] = "low"
+    merged_result["damage_score"] = 0.0
+    merged_result["confidence"] = min(_to_float(original_result.get("confidence", 0.0), 0.0), 0.49)
+    merged_result["repairable"] = True
+    merged_result["repair_status"] = "repairable"
+    merged_result["detections"] = []
+    merged_result["recommendation"] = "No confirmed physical screen crack"
+    merged_result["repair_advice"] = (
+        "No physical crack was confidently confirmed. Clean the display and retake a close, "
+        "straight-on photo with a plain background if you still suspect real glass damage."
+    )
+    merged_result["damage_description"] = detail_text
+    merged_result["repair_options"] = []
+    merged_result["cautions"] = []
+    return merged_result
+
+
 # ── OpenAI analysis (same pattern as chat.py) ─────────────────────────────
 
 async def analyze_with_openai(image_bytes: bytes, phone_model: str, location: str, width: int, height: int) -> dict:
@@ -237,6 +288,87 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
         return None
 
 
+async def verify_physical_damage(image_bytes: bytes, width: int, height: int) -> dict:
+    key = settings.OPENAI_API_KEY
+    if not key:
+        return None
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=key)
+        b64_image = base64.b64encode(image_bytes).decode("utf-8")
+
+        prompt = f"""You are a strict verification model for smartphone screen damage.
+Your ONLY job is to decide whether this image contains CONFIRMED physical screen damage
+on this actual device, not wallpaper art or a photo shown on-screen.
+
+Image size: {width}x{height} pixels.
+
+Return JSON only:
+{{
+  "physical_damage_confirmed": true or false,
+  "looks_like_wallpaper_or_photo": true or false,
+  "confidence": number from 0.0 to 1.0,
+  "reason": "one short sentence"
+}}
+
+Rules:
+- Be extremely conservative: if uncertain, set physical_damage_confirmed=false.
+- If crack pattern appears behind icons/UI text or looks printed in content, set
+  looks_like_wallpaper_or_photo=true and physical_damage_confirmed=false.
+- Set physical_damage_confirmed=true ONLY for unambiguous real glass/panel damage
+  (e.g., crack lines crossing UI overlays, dead pixels, LCD bleed, chipped glass).
+"""
+
+        request_params = {
+            "model": settings.VISION_MODEL,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{b64_image}",
+                                "detail": "high",
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        if settings.VISION_MODEL.startswith(("gpt-5", "o1", "o3", "o4")):
+            request_params["max_completion_tokens"] = 300
+        else:
+            request_params["max_tokens"] = 300
+
+        response = client.chat.completions.create(**request_params)
+
+        import json
+        choice = response.choices[0]
+        content = (choice.message.content or "").strip()
+        content = content.replace("```json", "").replace("```", "").strip()
+        if not content:
+            return None
+
+        parsed = json.loads(content)
+        return {
+            "physical_damage_confirmed": bool(parsed.get("physical_damage_confirmed")),
+            "looks_like_wallpaper_or_photo": bool(parsed.get("looks_like_wallpaper_or_photo")),
+            "confidence": _to_float(parsed.get("confidence", 0.0), 0.0),
+            "reason": str(parsed.get("reason", "")).strip(),
+        }
+    except Exception as exception:
+        logger.error(f"Physical-damage verification failed: {exception}")
+        return None
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 @router.post("/predict")
@@ -280,6 +412,19 @@ async def predict(
         pretty_model = (phone_model or "").replace("_", " ").title()
         detail = feedback or f'"{pretty_model}" does not appear to be a real phone model. Please enter a valid model.'
         raise HTTPException(status_code=422, detail=detail)
+
+    # ── 3c. Wallpaper false-positive guard (strict) ───────────────
+    if _has_reported_damage(ai_result):
+        guard_result = await verify_physical_damage(jpeg_bytes, width, height)
+        if guard_result and _should_override_as_wallpaper(guard_result):
+            logger.info(
+                "Wallpaper guard override | confirmed=%s wallpaper=%s confidence=%.2f reason=%s",
+                guard_result.get("physical_damage_confirmed"),
+                guard_result.get("looks_like_wallpaper_or_photo"),
+                _to_float(guard_result.get("confidence", 0.0), 0.0),
+                guard_result.get("reason", ""),
+            )
+            ai_result = _build_wallpaper_safe_result(ai_result, guard_result.get("reason", ""))
 
     # ── 4. Get user_id from token ─────────────────────────────────
     user_id = None
