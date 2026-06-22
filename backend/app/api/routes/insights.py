@@ -6,6 +6,7 @@ from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+chat_model_name = "gpt-4o-mini"
 
 class InsightsRequest(BaseModel):
     city:    str
@@ -49,7 +50,7 @@ Rules:
 - Keep all text short and actionable"""
 
         response = client.chat.completions.create(
-            model=settings.CHAT_MODEL,
+            model=chat_model_name,
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -57,7 +58,6 @@ Rules:
         content = content.replace("```json", "").replace("```", "").strip()
         return json.loads(content)
 
-    except Exception as e:
-     logger.error(f"Insights failed: {e}")
-     print(f"🔥 INSIGHTS ERROR: {e}")  # add this
+    except Exception as exception:
+     logger.error(f"Insights failed: {exception}")
      return {"summary": "", "suggestions": [], "cautions": []}

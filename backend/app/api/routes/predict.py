@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _limit = "1000/minute" if os.getenv("TESTING") == "true" else "10/minute"
+vision_model_name = "gpt-4o"
+main_inference_max_dimension = int(os.getenv("MAIN_INFERENCE_MAX_DIMENSION", "1280"))
+main_image_detail = os.getenv("MAIN_IMAGE_DETAIL", "auto")
+main_completion_token_budget = int(os.getenv("MAIN_COMPLETION_TOKEN_BUDGET", "1200"))
+enable_wallpaper_guard = os.getenv("ENABLE_WALLPAPER_GUARD", "true").lower() == "true"
+wallpaper_guard_detail = os.getenv("WALLPAPER_GUARD_DETAIL", "low")
+wallpaper_guard_completion_token_budget = int(os.getenv("WALLPAPER_GUARD_COMPLETION_TOKEN_BUDGET", "120"))
+wallpaper_guard_confidence_threshold = float(os.getenv("WALLPAPER_GUARD_CONFIDENCE_THRESHOLD", "0.93"))
 
 
 # ── Detection helpers ──────────────────────────────────────────────────────
@@ -87,11 +95,64 @@ def _has_reported_damage(analysis_result: dict) -> bool:
 def _should_override_as_wallpaper(guard_result: dict) -> bool:
     # Extremely strict policy requested by product: if the verifier is not highly
     # confident that physical damage is real, treat it as no damage.
-    minimum_confirmation_confidence = 0.80
     confirmed_physical_damage = bool(guard_result.get("physical_damage_confirmed"))
     wallpaper_like = bool(guard_result.get("looks_like_wallpaper_or_photo"))
     confidence = _to_float(guard_result.get("confidence", 0.0))
-    return wallpaper_like or not confirmed_physical_damage or confidence < minimum_confirmation_confidence
+    return wallpaper_like or not confirmed_physical_damage or confidence < wallpaper_guard_confidence_threshold
+
+
+def _is_crack_only_pattern(analysis_result: dict) -> bool:
+    detections = analysis_result.get("detections", [])
+    damage_labels = {
+        str(detection.get("label", "")).lower()
+        for detection in detections
+        if isinstance(detection, dict)
+    }
+
+    if not damage_labels:
+        return False
+
+    hard_damage_labels = {"dead_pixel", "black_spot", "shatter"}
+    if hard_damage_labels & damage_labels:
+        return False
+
+    crack_like_labels = {"crack", "scratch", "damage"}
+    return damage_labels.issubset(crack_like_labels)
+
+
+def _should_override_for_analysis_result(analysis_result: dict, guard_result: dict) -> bool:
+    crack_only_pattern = _is_crack_only_pattern(analysis_result)
+    if not crack_only_pattern:
+        return _should_override_as_wallpaper(guard_result)
+
+    # Extra strict for crack-only scenes because fake cracked wallpapers usually
+    # show only crack-like lines without panel-failure signs.
+    crack_only_minimum_confidence = max(wallpaper_guard_confidence_threshold, 0.96)
+    confirmed_physical_damage = bool(guard_result.get("physical_damage_confirmed"))
+    wallpaper_like = bool(guard_result.get("looks_like_wallpaper_or_photo"))
+    confidence = _to_float(guard_result.get("confidence", 0.0))
+    return wallpaper_like or not confirmed_physical_damage or confidence < crack_only_minimum_confidence
+
+
+def _should_run_wallpaper_guard(analysis_result: dict) -> bool:
+    if not _has_reported_damage(analysis_result):
+        return False
+
+    damage_score = _to_float(analysis_result.get("damage_score", 0.0))
+    model_confidence = _to_float(analysis_result.get("confidence", 0.0))
+    detections = analysis_result.get("detections", [])
+    damage_labels = {
+        str(detection.get("label", "")).lower()
+        for detection in detections
+        if isinstance(detection, dict)
+    }
+    has_hard_damage_indicator = bool({"dead_pixel", "black_spot", "shatter"} & damage_labels)
+
+    # Skip the second model call for obvious severe hardware failures to save cost.
+    if has_hard_damage_indicator and damage_score >= 65.0 and model_confidence >= 0.90:
+        return False
+
+    return True
 
 
 def _build_wallpaper_safe_result(original_result: dict, guard_reason: str = "") -> dict:
@@ -233,7 +294,7 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
 - Prefer several smaller boxes over one big box. If a crack runs into a corner, box the actual visible crack, not the entire side.
 - Ensure x >= 0, y >= 0, x + w <= {width}, y + h <= {height}. Look carefully at where the damage actually is before choosing coordinates.
 - detections array can be empty ONLY if there is genuinely no visible damage."""
-        model = settings.VISION_MODEL
+        model = vision_model_name
         params = {
             "model": model,
             "response_format": {"type": "json_object"},
@@ -244,7 +305,7 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{b64_image}",
-                            "detail": "high"
+                            "detail": main_image_detail,
                         }
                     },
                     {
@@ -259,9 +320,9 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
         # max_completion_tokens and spend part of the budget on hidden
         # reasoning, so give them more room to still emit the full JSON.
         if model.startswith(("gpt-5", "o1", "o3", "o4")):
-            params["max_completion_tokens"] = 4000
+            params["max_completion_tokens"] = main_completion_token_budget
         else:
-            params["max_tokens"] = 1500
+            params["max_tokens"] = main_completion_token_budget
 
         response = client.chat.completions.create(**params)
 
@@ -318,10 +379,17 @@ Rules:
   looks_like_wallpaper_or_photo=true and physical_damage_confirmed=false.
 - Set physical_damage_confirmed=true ONLY for unambiguous real glass/panel damage
   (e.g., crack lines crossing UI overlays, dead pixels, LCD bleed, chipped glass).
+- Strong wallpaper trap checks:
+  1) If app icons, clock, status-bar glyphs, or notification text look clean and
+     fully readable on top of the crack pattern, that is wallpaper/photo.
+  2) If the crack pattern has uniform sharpness/color and no glass reflection depth,
+     that is wallpaper/photo.
+  3) For "crack-only" scenes, require very strong physical evidence; otherwise mark
+     as wallpaper/photo and set physical_damage_confirmed=false.
 """
 
         request_params = {
-            "model": settings.VISION_MODEL,
+            "model": vision_model_name,
             "response_format": {"type": "json_object"},
             "messages": [
                 {
@@ -331,7 +399,7 @@ Rules:
                             "type": "image_url",
                             "image_url": {
                                 "url": f"data:image/jpeg;base64,{b64_image}",
-                                "detail": "high",
+                                "detail": wallpaper_guard_detail,
                             },
                         },
                         {
@@ -343,10 +411,10 @@ Rules:
             ],
         }
 
-        if settings.VISION_MODEL.startswith(("gpt-5", "o1", "o3", "o4")):
-            request_params["max_completion_tokens"] = 300
+        if vision_model_name.startswith(("gpt-5", "o1", "o3", "o4")):
+            request_params["max_completion_tokens"] = wallpaper_guard_completion_token_budget
         else:
-            request_params["max_tokens"] = 300
+            request_params["max_tokens"] = wallpaper_guard_completion_token_budget
 
         response = client.chat.completions.create(**request_params)
 
@@ -394,9 +462,15 @@ async def predict(
     # width/height drive the bounding-box coordinates — so all three stay aligned.
     from PIL import ImageOps
     pil_img = ImageOps.exif_transpose(PILImage.open(io.BytesIO(image_bytes))).convert("RGB")
+    if max(pil_img.size) > main_inference_max_dimension:
+        resize_scale = main_inference_max_dimension / max(pil_img.size)
+        resized_width = max(1, int(pil_img.size[0] * resize_scale))
+        resized_height = max(1, int(pil_img.size[1] * resize_scale))
+        lanczos_filter = PILImage.Resampling.LANCZOS if hasattr(PILImage, "Resampling") else PILImage.LANCZOS
+        pil_img = pil_img.resize((resized_width, resized_height), lanczos_filter)
     width, height = pil_img.size
     buf = io.BytesIO()
-    pil_img.save(buf, format="JPEG", quality=90)
+    pil_img.save(buf, format="JPEG", quality=82, optimize=True)
     jpeg_bytes = buf.getvalue()
     image_url = "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes).decode()
 
@@ -414,9 +488,10 @@ async def predict(
         raise HTTPException(status_code=422, detail=detail)
 
     # ── 3c. Wallpaper false-positive guard (strict) ───────────────
-    if _has_reported_damage(ai_result):
+    if enable_wallpaper_guard and _should_run_wallpaper_guard(ai_result):
         guard_result = await verify_physical_damage(jpeg_bytes, width, height)
-        if guard_result and _should_override_as_wallpaper(guard_result):
+        crack_only_pattern = _is_crack_only_pattern(ai_result)
+        if guard_result and _should_override_for_analysis_result(ai_result, guard_result):
             logger.info(
                 "Wallpaper guard override | confirmed=%s wallpaper=%s confidence=%.2f reason=%s",
                 guard_result.get("physical_damage_confirmed"),
@@ -425,6 +500,12 @@ async def predict(
                 guard_result.get("reason", ""),
             )
             ai_result = _build_wallpaper_safe_result(ai_result, guard_result.get("reason", ""))
+        elif guard_result is None and crack_only_pattern:
+            logger.info("Wallpaper guard fallback override | crack-only pattern with missing verifier response")
+            ai_result = _build_wallpaper_safe_result(
+                ai_result,
+                "strict crack-only policy triggered because verifier response was unavailable",
+            )
 
     # ── 4. Get user_id from token ─────────────────────────────────
     user_id = None
