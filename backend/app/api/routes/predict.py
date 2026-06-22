@@ -70,106 +70,6 @@ def _normalize_detections(detections: list, width: int, height: int) -> list:
     return normalized
 
 
-# ── Wallpaper pre-screen ───────────────────────────────────────────────────
-
-async def is_wallpaper_or_fake(image_bytes: bytes) -> "tuple[bool, str]":
-    """Dedicated pre-screening call that ONLY answers one question:
-    Is this a cracked-screen wallpaper / fake image, or real physical damage?
-
-    Returns (is_fake: bool, reason: str).
-    Defaults to (False, "") on any error so a broken pre-screen never
-    blocks a legitimate submission.
-    """
-    key = settings.OPENAI_API_KEY
-    if not key:
-        return False, ""
-
-    try:
-        from openai import OpenAI
-        import json
-        client = OpenAI(api_key=key)
-        b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-        screening_prompt = """You are a forensic image analyst. Your ONLY job is to answer:
-Is the cracked/broken glass appearance in this image a WALLPAPER/GRAPHIC, or REAL physical damage?
-
-A "cracked screen wallpaper" is when the phone's display is perfectly intact but the user has set
-a background image that looks like broken glass. The phone screen itself is fine — it is just
-showing a picture of cracks.
-
-Study the image and apply these two primary tests:
-
-PRIMARY TEST — UI LAYER (most reliable signal):
-Look carefully at the status bar area (top of screen: clock, battery icon, WiFi/signal icons)
-and the navigation bar (bottom of screen: home button, back button, or gesture bar).
-- If those UI elements are CLEAN, SHARP and undamaged, but crack lines appear BEHIND them in
-  the wallpaper layer → the cracks are a WALLPAPER graphic. Verdict: WALLPAPER.
-- If crack lines physically pass OVER and interrupt the clock digits, battery icon, or navigation
-  buttons — cutting through them as if the glass itself is broken — → Verdict: REAL.
-
-SECONDARY TEST — CRACK APPEARANCE:
-- WALLPAPER cracks: perfectly uniform sharpness all along their length, flat/matte appearance,
-  no 3-D depth, no light reflection variation, look like a 2-D image or clip-art.
-- REAL cracks: uneven brightness along the crack, visible depth/raised edges, possible rainbow
-  iridescence, micro-branching, glass chip debris, or dark LCD bleed zones nearby.
-
-IMPORTANT RULES:
-- Do NOT say "photo of whole phone" or ask for a different photo. Just decide: WALLPAPER or REAL.
-- If you can see a status bar or any UI element that is clean while cracks are below it → WALLPAPER.
-- If uncertain, default to WALLPAPER.
-
-Respond ONLY with this JSON (no markdown):
-{
-  "verdict": "WALLPAPER" or "REAL",
-  "confidence": 0.0 to 1.0,
-  "reason": "one sentence: the single most important thing you saw that determined the verdict"
-}"""
-
-        model = settings.VISION_MODEL
-        call_params = {
-            "model": model,
-            "response_format": {"type": "json_object"},
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{b64}",
-                            "detail": "high",
-                        },
-                    },
-                    {"type": "text", "text": screening_prompt},
-                ],
-            }],
-        }
-        if model.startswith(("gpt-5", "o1", "o3", "o4")):
-            call_params["max_completion_tokens"] = 300
-        else:
-            call_params["max_tokens"] = 300
-
-        response = client.chat.completions.create(**call_params)
-
-        raw = (response.choices[0].message.content or "").strip()
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        data = json.loads(raw)
-
-        verdict     = str(data.get("verdict", "REAL")).upper()
-        confidence  = float(data.get("confidence", 0.0))
-        reason      = str(data.get("reason", ""))
-
-        logger.info(f"Wallpaper pre-screen | verdict={verdict} confidence={confidence} reason={reason}")
-
-        # Treat WALLPAPER with any confidence, or REAL with very low confidence, as fake
-        is_fake = (verdict == "WALLPAPER") or (verdict != "REAL" and confidence < 0.4)
-        return is_fake, reason
-
-    except Exception as e:
-        import traceback
-        logger.error(f"Wallpaper pre-screen exception: {e}\n{traceback.format_exc()}")
-        return False, ""   # fail-open: don't block on error
-
-
 # ── OpenAI analysis (same pattern as chat.py) ─────────────────────────────
 
 async def analyze_with_openai(image_bytes: bytes, phone_model: str, location: str, width: int, height: int) -> dict:
@@ -196,67 +96,21 @@ IMAGE GEOMETRY (critical for the bounding boxes):
 - Every bbox you output MUST be in PIXELS of THIS image, as [x, y, w, h] where (x, y) is the
   top-left of the box and (w, h) is its width and height in pixels.
 
-════════════════════════════════════════════════════════════════════════
-MANDATORY STEP 1 — WALLPAPER / FAKE DAMAGE SCREENING (do this FIRST)
-════════════════════════════════════════════════════════════════════════
-Before scoring ANY damage you MUST run through all five tests below.
-If ANY single test flags the image as fake/wallpaper, you MUST immediately
-return: damage_score=0, severity="low", repair_cost_pkr=0, repairable=true,
-detections=[], repair_options=[], cautions=[], and a damage_description
-that clearly tells the user this appears to be a cracked-screen wallpaper
-or a photo of a broken phone — NOT physical damage to the device.
-
-TEST 1 — UI LAYER INTEGRITY (strongest signal, check this first):
-  Examine the status bar (clock, battery icon, signal bars), navigation bar,
-  and any visible app icons, notification banners, or on-screen text.
-  → FAKE if: those UI chrome elements look perfectly clean, sharp and
-    undamaged while crack lines appear only in the wallpaper BEHIND them.
-    Real physical cracks are a property of the GLASS; they cut visually
-    THROUGH every pixel including the UI — the clock hands, battery icon,
-    app icons will all have the crack line passing over them. If the UI is
-    pristine and the cracks live underneath → WALLPAPER → Score 0.
-
-TEST 2 — CRACK PHYSICS / 3-D TEXTURE:
-  Study the crack lines at their intersections and edges.
-  → FAKE if: the cracks are uniformly sharp across their entire length
-    with no variation in brightness, no specular hot-spots, no visible
-    raised edge, no micro-chipping, no iridescent light bending. Flat,
-    matte, perfectly consistent crack lines = 2-D printed image = FAKE.
-  → REAL cracks: show light differently at different angles along their
-    path, have micro-branching, rough/jagged edges, and may show a thin
-    bright highlight line where light refracts through fractured glass.
-
-TEST 3 — PHOTO-OF-A-PHONE CHECK:
-  Is the camera shot showing the ENTIRE phone body (bezels, sides, buttons
-  visible) rather than just the screen surface itself?
-  → If the uploaded image is a photo of a phone (device fully framed)
-    rather than a close-up of the actual screen → UNVERIFIABLE.
-    Set damage_score=0 and explain in damage_description that a direct
-    close-up of the damaged screen surface is required for assessment.
-
-TEST 4 — CRACK BOUNDARY CONTAINMENT:
-  Do the crack lines terminate exactly at the edge of the wallpaper tile
-  and NOT extend into the status bar strip, the dock area, or the
-  navigation bar chrome at the top/bottom of the display?
-  → If yes, the cracks are spatially bounded by the wallpaper region
-    → WALLPAPER → Score 0.
-
-TEST 5 — GRAPHIC PATTERN RECOGNITION:
-  Does the crack pattern look like a stock "broken glass" graphic, an
-  AI-generated shatter texture, or a novelty wallpaper pack image?
-  Indicators: near-perfect spider-web symmetry, multiple impact points
-  that look artistically placed, glass shard fill that is too clean and
-  uniform, no actual dark dead zones or LCD bleed.
-  → If the pattern looks designed rather than physically caused → FAKE
-  → Score 0.
-
-DECISION RULE:
-  • PASS all 5 tests with zero fake flags → proceed to damage scoring.
-  • FAIL even ONE test → immediately output the zero-damage response.
-    Do NOT attempt to partially score or "give benefit of the doubt."
-    A false negative (missing real damage) is tolerable.
-    A false positive (calling wallpaper real damage) is a critical error.
-════════════════════════════════════════════════════════════════════════
+CRITICAL — REAL PHYSICAL DAMAGE vs A CRACKED-SCREEN WALLPAPER/PHOTO:
+Many phones display a "broken screen" wallpaper or are showing a photo of a cracked phone. That
+is NOT real damage and must score 0. Decide carefully before reporting any crack:
+- REAL glass damage signs: cracks/shatter lines run ACROSS the entire display and continue OVER
+  the status bar, clock, app icons and other UI — independent of the picture behind them; they
+  catch light and reflections; there is raised/chipped glass, rainbow shimmer, black/leaking LCD
+  ink, dead or discolored zones, or visible distortion that follows the physical glass.
+- FAKE / WALLPAPER cracks: the crack pattern sits BEHIND the interface — app icons, the clock,
+  the status bar and notifications render perfectly cleanly ON TOP of the "cracks"; the pattern is
+  flat, evenly sharp, has no light reflection, and is confined to the wallpaper area only.
+- If the cracks are only in the displayed image/wallpaper and the UI overlays them cleanly, treat
+  it as NO real damage: set model_valid=true, damage_score=0, severity="low", repairable=true,
+  detections=[], and use damage_description to explain it looks like a cracked-screen wallpaper or
+  a photo of a broken phone, not physical damage to THIS device.
+- Only output a detection for damage you are confident is genuine physical glass/panel damage.
 
 Respond ONLY with a valid JSON object in exactly this format:
 {{
@@ -316,9 +170,9 @@ Rules:
 - damage_score 21-60 = visible cracks = medium
 - damage_score 61-85 = severe cracks = high but repairable
 - damage_score 86-100 = shattered/dead LCD = not repairable
-- repair_cost_pkr: If damage_score=0 (wallpaper/fake/no damage detected) this MUST be 0. Otherwise budget according to the given model and the Pakistan market — keep prices realistic and affordable for Pakistan.
-- repair_options: MUST be an empty array [] when damage_score=0 or repair_cost_pkr=0. When repairable, ALWAYS return 2-4 options that include an "Original / OEM display" and at least one China/aftermarket variant (Grade A and/or economy). Original must be the most expensive, economy the cheapest. For glass-only damage you may also add an "Outer glass only" option. Each option needs a realistic cost_pkr for THIS model and a duration.
-- If no damage visible OR wallpaper detected: damage_score=0, severity="low", repair_cost_pkr=0, repairable=true, repair_options=[], detections=[].
+- repair_cost_pkr: budget according to the given model and the Pakistan market — keep prices realistic and affordable for Pakistan.
+- repair_options: when repairable, ALWAYS return 2-4 options that include an "Original / OEM display" and at least one China/aftermarket variant (Grade A and/or economy). Original must be the most expensive, economy the cheapest. For glass-only damage you may also add an "Outer glass only" option. Each option needs a realistic cost_pkr for THIS model and a duration.
+- If no damage visible, damage_score=0, severity=low, repairable=true, detections=[].
 - nearby_shops: return exactly 3 real well-known repair markets or shops in Pakistan in the specified city/area of {location}.
 - Focus shops on basis of user location: {location}.
 
@@ -327,8 +181,7 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
 - Each bbox must TIGHTLY enclose only that damage in pixel coordinates of this {width}x{height} image. Do NOT return a box that covers the whole screen.
 - Prefer several smaller boxes over one big box. If a crack runs into a corner, box the actual visible crack, not the entire side.
 - Ensure x >= 0, y >= 0, x + w <= {width}, y + h <= {height}. Look carefully at where the damage actually is before choosing coordinates.
-- detections array MUST be empty [] when damage_score=0. Only mark genuine confirmed physical damage."""
-
+- detections array can be empty ONLY if there is genuinely no visible damage."""
         model = settings.VISION_MODEL
         params = {
             "model": model,
@@ -380,8 +233,7 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
         return result
 
     except Exception as e:
-        import traceback
-        logger.error(f"OpenAI analysis failed: {e}\n{traceback.format_exc()}")
+        logger.error(f"OpenAI analysis failed: {e}")
         return None
 
 
@@ -416,59 +268,18 @@ async def predict(
     jpeg_bytes = buf.getvalue()
     image_url = "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes).decode()
 
-    # ── 3. Wallpaper / fake-image pre-screen ─────────────────────
-    # This is a dedicated single-purpose API call before the main analysis.
-    # It only answers "real or wallpaper?" with a laser-focused prompt,
-    # making it much harder for the model to get distracted and score fake damage.
-    is_fake, fake_reason = await is_wallpaper_or_fake(jpeg_bytes)
-    if is_fake:
-        logger.info(f"Wallpaper pre-screen blocked submission: {fake_reason}")
-        return {
-            "severity":        "low",
-            "damage_score":    0,
-            "confidence":      0.99,
-            "repair_cost_usd": 0,
-            "detections":      [],
-            "image_url":       image_url,
-            "report_id":       None,
-            "repairable":      True,
-            "repair_status":   "repairable",
-            "recommendation":  "No physical damage detected.",
-            "repair_reason":   (
-                "This looks like a cracked-screen wallpaper — the screen itself appears intact. "
-                f"{fake_reason} "
-                "If your screen is genuinely damaged, please photograph it directly with the display turned on."
-            ),
-            "repair_advice":   "No repair needed — no real physical damage was detected on this device.",
-            "nearby_shops":    [],
-            "repair_options":  [],
-            "cautions":        ["This image appears to show a cracked-screen wallpaper, not real damage."],
-        }
-
-    # ── 3b. Always use OpenAI (no local models) ───────────────────
-    logger.info("Pre-screen passed — running main damage analysis")
+    # ── 3. Always use OpenAI (no local models) ────────────────────
     ai_result = await analyze_with_openai(jpeg_bytes, phone_model or "other", location or "Lahore", width, height)
 
     if not ai_result:
-        logger.error("analyze_with_openai returned None — check logs above for the root cause")
         raise HTTPException(status_code=500, detail="Analysis failed.")
 
-    # ── 3c. Reject implausible / non-existent phone models ────────
+    # ── 3b. Reject implausible / non-existent phone models ────────
     if ai_result.get("model_valid") is False:
         feedback = (ai_result.get("model_feedback") or "").strip()
         pretty_model = (phone_model or "").replace("_", " ").title()
         detail = feedback or f'"{pretty_model}" does not appear to be a real phone model. Please enter a valid model.'
         raise HTTPException(status_code=422, detail=detail)
-
-    # ── 3d. Server-side safety net: if GPT still returned a non-zero
-    #        price/score despite detections being empty, zero it out.
-    #        This guards against prompt non-compliance. ─────────────
-    if not ai_result.get("detections"):
-        score = float(ai_result.get("damage_score", 0))
-        if score == 0:
-            ai_result["repair_cost_pkr"] = 0
-            ai_result["repair_options"]  = []
-            ai_result["cautions"]        = []
 
     # ── 4. Get user_id from token ─────────────────────────────────
     user_id = None
