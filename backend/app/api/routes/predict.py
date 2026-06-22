@@ -72,7 +72,7 @@ def _normalize_detections(detections: list, width: int, height: int) -> list:
 
 # ── Wallpaper pre-screen ───────────────────────────────────────────────────
 
-async def is_wallpaper_or_fake(image_bytes: bytes) -> tuple[bool, str]:
+async def is_wallpaper_or_fake(image_bytes: bytes) -> "tuple[bool, str]":
     """Dedicated pre-screening call that ONLY answers one question:
     Is this a cracked-screen wallpaper / fake image, or real physical damage?
 
@@ -158,7 +158,8 @@ Respond ONLY with a JSON object, no markdown, no explanation outside the JSON:
         return is_fake, reason
 
     except Exception as e:
-        logger.warning(f"Wallpaper pre-screen failed (allowing through): {e}")
+        import traceback
+        logger.error(f"Wallpaper pre-screen exception: {e}\n{traceback.format_exc()}")
         return False, ""   # fail-open: don't block on error
 
 
@@ -372,7 +373,8 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
         return result
 
     except Exception as e:
-        logger.error(f"OpenAI analysis failed: {e}")
+        import traceback
+        logger.error(f"OpenAI analysis failed: {e}\n{traceback.format_exc()}")
         return None
 
 
@@ -438,9 +440,11 @@ async def predict(
         }
 
     # ── 3b. Always use OpenAI (no local models) ───────────────────
+    logger.info("Pre-screen passed — running main damage analysis")
     ai_result = await analyze_with_openai(jpeg_bytes, phone_model or "other", location or "Lahore", width, height)
 
     if not ai_result:
+        logger.error("analyze_with_openai returned None — check logs above for the root cause")
         raise HTTPException(status_code=500, detail="Analysis failed.")
 
     # ── 3c. Reject implausible / non-existent phone models ────────
