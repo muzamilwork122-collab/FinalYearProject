@@ -192,6 +192,7 @@ async def analyze_with_openai(image_bytes: bytes, phone_model: str, location: st
         client = OpenAI(api_key=key)
 
         b64_image = base64.b64encode(image_bytes).decode("utf-8")
+        logger.info(f"analyze_with_openai | model={settings.VISION_MODEL} size={len(image_bytes)}B")
 
         prompt = f"""You are an expert smartphone screen damage assessment AI.
 
@@ -341,7 +342,6 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
         model = settings.VISION_MODEL
         params = {
             "model": model,
-            "response_format": {"type": "json_object"},
             "messages": [{
                 "role": "user",
                 "content": [
@@ -360,13 +360,16 @@ DETECTIONS / BOUNDING BOXES (very important — these are drawn on the image):
             }],
         }
 
-        # GPT-5 / o-series reasoning models renamed max_tokens to
-        # max_completion_tokens and spend part of the budget on hidden
-        # reasoning, so give them more room to still emit the full JSON.
-        if model.startswith(("gpt-5", "o1", "o3", "o4")):
+        # o1/o3 do not support response_format or max_tokens at all
+        if model.startswith(("o1", "o3")):
             params["max_completion_tokens"] = 4000
+        elif model.startswith(("gpt-5", "o4")):
+            params["max_completion_tokens"] = 4000
+            params["response_format"] = {"type": "json_object"}
         else:
+            # gpt-4o, gpt-4-turbo, gpt-4-vision, etc.
             params["max_tokens"] = 1500
+            params["response_format"] = {"type": "json_object"}
 
         response = client.chat.completions.create(**params)
 
