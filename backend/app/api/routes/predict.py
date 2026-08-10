@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _limit = "1000/minute" if os.getenv("TESTING") == "true" else "10/minute"
-FAKE_WALLPAPER_INPUT_MESSAGE = "The mobile screen is not actually damaged; a fake wallpaper is being used."
+
 
 
 # ── Detection helpers ──────────────────────────────────────────────────────
@@ -83,13 +83,7 @@ def _normalize_phone_model_input(phone_model: Optional[str]) -> str:
     return (phone_model or "").strip()
 
 
-def _looks_like_fake_wallpaper_input(phone_model: str) -> bool:
-    if not phone_model:
-        return False
-    first_character = phone_model[0]
-    has_capital_initial = first_character.isalpha() and first_character.isupper()
-    has_trailing_full_stop = phone_model.endswith(".")
-    return has_capital_initial or has_trailing_full_stop
+
 
 
 def _get_vision_model_name() -> str:
@@ -401,8 +395,6 @@ async def predict(
 
     logger.info(f"Predict | file={file.filename} size={len(image_bytes)}B model={phone_model} location={location}")
     normalized_phone_model = _normalize_phone_model_input(phone_model)
-    if _looks_like_fake_wallpaper_input(normalized_phone_model):
-        raise HTTPException(status_code=422, detail=FAKE_WALLPAPER_INPUT_MESSAGE)
 
     # ── 2. Normalize orientation + re-encode ONCE ─────────────────
     # The same JPEG is sent to the model AND returned to the client, and its
